@@ -1,0 +1,114 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+test/
+tests/
+sandbox/
+logs/
+
+# C extensions
+*.so
+
+# Distribution / packaging
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtual environment
+venv/
+ENV/
+env/
+.venv/
+.ENV/
+.env/
+.venv.bak/
+env.bak/
+venv.bak/
+
+# PyInstaller
+# Usually contains your entire application in one folder
+*.manifest
+*.spec
+
+# Installer logs
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Unit test / coverage reports
+htmlcov/
+.tox/
+.nox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+*.py,cover
+.hypothesis/
+.pytest_cache/
+
+# Type checker
+.mypy_cache/
+.dmypy.json
+dmypy.json
+
+# IDEs and editors
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# Pyre type checker
+.pyre/
+
+# pytype
+.pytype/
+
+# Cython debug symbols
+cython_debug/
+
+# Profiling data
+*.prof
+*.lprof
+*.pstat
+*.dat
+
+# dotenv
+.env
+.env.*
+
+# local notebooks / data
+*.sqlite
+*.db
+*.log
+*.csv
+*.tsv
+*.json
+*.yaml
+*.yml
+*.bak
+
+# macOS / Windows / Linux
+.DS_Store
+Thumbs.db
+ehthumbs.db
+Icon?
+desktop.ini
