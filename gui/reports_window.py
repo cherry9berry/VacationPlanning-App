@@ -91,29 +91,33 @@ class ReportTab:
         self.progress_frame = ttk.LabelFrame(self.frame, text="Прогресс обработки", padding="10")
         self.progress_frame.columnconfigure(0, weight=1)
         
-        self.progress_label = ttk.Label(self.progress_frame, text="Готов к началу")
-        self.progress_label.grid(row=0, column=0, sticky=tk.W, pady=2)
+        # Общий прогресс и время
+        self.overall_progress_label = ttk.Label(self.progress_frame, text="Готов к началу", font=("TkDefaultFont", 10, "bold"))
+        self.overall_progress_label.grid(row=0, column=0, sticky=tk.W, pady=2)
+        
+        self.time_label = ttk.Label(self.progress_frame, text="", font=("TkDefaultFont", 9))
+        self.time_label.grid(row=1, column=0, sticky=tk.W, pady=2)
         
         # Прогресс подразделений
-        ttk.Label(self.progress_frame, text="Подразделения:", font=("TkDefaultFont", 9)).grid(row=1, column=0, sticky=tk.W, pady=(10, 2))
+        label_text = "Подразделения:" if self.tab_type == "departments" else "Отделы:"
+        ttk.Label(self.progress_frame, text=label_text, font=("TkDefaultFont", 9, "bold")).grid(row=2, column=0, sticky=tk.W, pady=(10, 2))
         self.dept_progress_bar = ttk.Progressbar(self.progress_frame, mode='determinate', length=400)
-        self.dept_progress_bar.grid(row=2, column=0, sticky=(tk.W, tk.E), pady=2)
+        self.dept_progress_bar.grid(row=3, column=0, sticky=(tk.W, tk.E), pady=2)
         self.dept_detail_label = ttk.Label(self.progress_frame, text="", font=("TkDefaultFont", 8))
-        self.dept_detail_label.grid(row=3, column=0, sticky=tk.W, pady=2)
+        self.dept_detail_label.grid(row=4, column=0, sticky=tk.W, pady=2)
         
         # Прогресс файлов
-        ttk.Label(self.progress_frame, text="Файлы:", font=("TkDefaultFont", 9)).grid(row=4, column=0, sticky=tk.W, pady=(10, 2))
+        files_label_text = "Файлы в текущем отделе:" if self.tab_type == "departments" else "Обработка отчетов:"
+        ttk.Label(self.progress_frame, text=files_label_text, font=("TkDefaultFont", 9)).grid(row=5, column=0, sticky=tk.W, pady=(10, 2))
         self.files_progress_bar = ttk.Progressbar(self.progress_frame, mode='determinate', length=400)
-        self.files_progress_bar.grid(row=5, column=0, sticky=(tk.W, tk.E), pady=2)
+        self.files_progress_bar.grid(row=6, column=0, sticky=(tk.W, tk.E), pady=2)
         self.files_detail_label = ttk.Label(self.progress_frame, text="", font=("TkDefaultFont", 8))
-        self.files_detail_label.grid(row=6, column=0, sticky=tk.W, pady=2)
-        
-        self.speed_label = ttk.Label(self.progress_frame, text="", font=("TkDefaultFont", 8))
-        self.speed_label.grid(row=7, column=0, sticky=tk.W, pady=2)
+        self.files_detail_label.grid(row=7, column=0, sticky=tk.W, pady=2)
         
         # Инициализация
         initial_msg = "Выберите папки подразделений для создания отчетов" if self.tab_type == "departments" else "Выберите целевую папку для создания общего отчета"
         self.add_info(initial_msg)
+
     
     def setup_control_buttons(self):
         """Настройка кнопок управления"""
@@ -169,6 +173,9 @@ class ReportTab:
         self.path_var.set(dir_path)
         self.add_info(f"Выбрана папка: {dir_path}")
         self.add_info("Сканирование папки...")
+        
+        # ВАЖНО: сбрасываем кнопку действия в неактивное состояние
+        self.action_btn.config(state=tk.DISABLED)
         
         def scan_thread():
             try:
@@ -463,9 +470,44 @@ class ReportTab:
         
         threading.Thread(target=processing_thread, daemon=True).start()
     
+
     def on_progress_update(self, progress):
         """Обработчик обновления прогресса"""
         def update_ui():
+            # Общий процент
+            if self.tab_type == "departments":
+                # Для отчетов по подразделениям - прогресс по файлам
+                if progress.total_files > 0:
+                    overall_percent = (progress.processed_files / progress.total_files) * 100
+                    self.overall_progress_label.config(text=f"Общий прогресс: {overall_percent:.1f}%")
+            else:
+                # Для общего отчета - прогресс по блокам
+                if progress.total_blocks > 0:
+                    overall_percent = (progress.processed_blocks / progress.total_blocks) * 100
+                    self.overall_progress_label.config(text=f"Общий прогресс: {overall_percent:.1f}%")
+            
+            # Время
+            elapsed = (datetime.now() - progress.start_time).total_seconds() if progress.start_time else 0
+            
+            if self.tab_type == "departments" and progress.processed_files > 0 and progress.total_files > 0:
+                # Для отчетов по подразделениям
+                speed = progress.processed_files / elapsed if elapsed > 0 else 0
+                remaining_files = progress.total_files - progress.processed_files
+                remaining_time = remaining_files / speed if speed > 0 else 0
+                self.time_label.config(
+                    text=f"Прошло: {elapsed:.0f} сек, Осталось: {remaining_time:.0f} сек"
+                )
+            elif self.tab_type == "general" and progress.processed_blocks > 0 and progress.total_blocks > 0:
+                # Для общего отчета
+                speed = progress.processed_blocks / elapsed if elapsed > 0 else 0
+                remaining_blocks = progress.total_blocks - progress.processed_blocks
+                remaining_time = remaining_blocks / speed if speed > 0 else 0
+                self.time_label.config(
+                    text=f"Прошло: {elapsed:.0f} сек, Осталось: {remaining_time:.0f} сек"
+                )
+            else:
+                self.time_label.config(text=f"Прошло: {elapsed:.0f} сек")
+            
             # Обновляем прогресс по подразделениям
             if progress.total_blocks > 0:
                 dept_percent = (progress.processed_blocks / progress.total_blocks) * 100
@@ -475,34 +517,33 @@ class ReportTab:
                 )
             
             # Обновляем прогресс по файлам
-            if progress.total_files > 0:
-                files_percent = (progress.processed_files / progress.total_files) * 100
-                self.files_progress_bar['value'] = files_percent
-                
-                if progress.current_file:
-                    self.files_detail_label.config(
-                        text=f"Файл {progress.processed_files}/{progress.total_files}: {progress.current_file}"
-                    )
-            
-            # Обновляем основную метку
-            self.progress_label.config(text=progress.current_operation)
-            
-            # Показываем скорость и оставшееся время
-            if progress.speed > 0 and progress.processed_files > 0:
-                seconds_per_file = 1.0 / progress.speed
-                remaining_files = max(0, progress.total_files - progress.processed_files)
-                remaining_time = max(0, remaining_files * seconds_per_file)
-                self.speed_label.config(
-                    text=f"Скорость: {seconds_per_file:.2f} сек/файл, "
-                         f"Осталось: {remaining_time:.0f} сек"
-                )
-            elif progress.processed_files == 0:
-                self.speed_label.config(text="Подготовка...")
+            if self.tab_type == "departments":
+                # Для отчетов по подразделениям показываем прогресс файлов в текущем отделе
+                if progress.total_files > 0:
+                    # Примерный прогресс файлов в текущем отделе (симуляция)
+                    files_in_current_dept = progress.total_files // max(1, progress.total_blocks)
+                    current_dept_files_processed = min(files_in_current_dept, 
+                        progress.processed_files - (progress.processed_blocks - 1) * files_in_current_dept)
+                    current_dept_files_processed = max(0, current_dept_files_processed)
+                    
+                    if files_in_current_dept > 0:
+                        files_percent = (current_dept_files_processed / files_in_current_dept) * 100
+                        self.files_progress_bar['value'] = min(100, files_percent)
+                        self.files_detail_label.config(
+                            text=f"Файл {current_dept_files_processed}/{files_in_current_dept} в текущем отделе"
+                        )
             else:
-                self.speed_label.config(text="Завершение...")
+                # Для общего отчета - симуляция плавного прогресса
+                if progress.total_blocks > 0:
+                    base_percent = (progress.processed_blocks / progress.total_blocks) * 100
+                    # Добавляем плавность на основе времени
+                    smooth_addition = (elapsed % 3) * 10  # Плавное изменение каждые 3 секунды
+                    smooth_percent = min(100, base_percent + smooth_addition)
+                    self.files_progress_bar['value'] = smooth_percent
+                    self.files_detail_label.config(text="Обработка данных...")
         
         self.frame.after(0, update_ui)
-    
+
     def show_progress_view(self):
         """Показать прогресс"""
         self.info_frame.grid_remove()

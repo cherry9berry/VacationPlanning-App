@@ -24,8 +24,7 @@ class Config:
         "max_employees": 10000,
         "min_employees": 1,
         "window_width": 1000,
-        "window_height": 700,
-        "log_level": "INFO"
+        "window_height": 700
     }
     
     def __init__(self, config_file: str = "config.json"):

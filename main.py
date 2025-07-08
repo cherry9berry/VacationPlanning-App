@@ -37,15 +37,11 @@ from config import Config
 from gui.main_window import MainWindow
 
 def setup_logging():
-    """Настройка логирования"""
-    log_dir = Path("logs")
-    log_dir.mkdir(exist_ok=True)
-    
+    """Настройка логирования только в консоль"""
     logging.basicConfig(
         level=logging.INFO,
         format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
         handlers=[
-            logging.FileHandler(log_dir / "vacation_tool.log", encoding='utf-8'),
             logging.StreamHandler(sys.stdout)
         ]
     )

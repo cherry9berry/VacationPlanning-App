@@ -5,7 +5,6 @@ __pycache__/
 test/
 tests/
 sandbox/
-logs/
 
 # C extensions
 *.so

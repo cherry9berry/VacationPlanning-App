@@ -11,6 +11,8 @@ import logging
 from pathlib import Path
 from typing import Optional, Dict
 import re
+from datetime import datetime
+
 
 from config import Config
 from core.processor import VacationProcessor
@@ -115,6 +117,7 @@ class CreateFilesWindow:
         )
         self.output_dir_btn.grid(row=1, column=2, pady=5)
     
+
     def setup_info_progress_area(self, parent):
         """Настройка области информации/прогресса"""
         # Информация (показывается по умолчанию)
@@ -169,41 +172,41 @@ class CreateFilesWindow:
         self.progress_frame = ttk.LabelFrame(parent, text="Прогресс обработки", padding="10")
         self.progress_frame.columnconfigure(0, weight=1)
         
-        # Основная информация
-        self.progress_label = ttk.Label(self.progress_frame, text="Готов к началу")
-        self.progress_label.grid(row=0, column=0, sticky=tk.W, pady=2)
+        # Общий прогресс и время
+        self.overall_progress_label = ttk.Label(self.progress_frame, text="Готов к началу", font=("TkDefaultFont", 10, "bold"))
+        self.overall_progress_label.grid(row=0, column=0, sticky=tk.W, pady=2)
+        
+        self.time_label = ttk.Label(self.progress_frame, text="", font=("TkDefaultFont", 9))
+        self.time_label.grid(row=1, column=0, sticky=tk.W, pady=2)
         
         # Прогресс по отделам (основной)
         self.departments_label = ttk.Label(self.progress_frame, text="Отделы:", font=("TkDefaultFont", 9, "bold"))
-        self.departments_label.grid(row=1, column=0, sticky=tk.W, pady=(10, 2))
+        self.departments_label.grid(row=2, column=0, sticky=tk.W, pady=(10, 2))
         
         self.departments_progress_bar = ttk.Progressbar(
             self.progress_frame,
             mode='determinate',
             length=400
         )
-        self.departments_progress_bar.grid(row=2, column=0, sticky=(tk.W, tk.E), pady=2)
+        self.departments_progress_bar.grid(row=3, column=0, sticky=(tk.W, tk.E), pady=2)
         
         self.departments_detail_label = ttk.Label(self.progress_frame, text="", font=("TkDefaultFont", 8))
-        self.departments_detail_label.grid(row=3, column=0, sticky=tk.W, pady=2)
+        self.departments_detail_label.grid(row=4, column=0, sticky=tk.W, pady=2)
         
         # Прогресс по сотрудникам в текущем отделе (вторичный)
-        self.employees_label = ttk.Label(self.progress_frame, text="Сотрудники в отделе:", font=("TkDefaultFont", 9))
-        self.employees_label.grid(row=4, column=0, sticky=tk.W, pady=(10, 2))
+        self.employees_label = ttk.Label(self.progress_frame, text="Файлы в текущем отделе:", font=("TkDefaultFont", 9))
+        self.employees_label.grid(row=5, column=0, sticky=tk.W, pady=(10, 2))
         
         self.employees_progress_bar = ttk.Progressbar(
             self.progress_frame,
             mode='determinate',
             length=400
         )
-        self.employees_progress_bar.grid(row=5, column=0, sticky=(tk.W, tk.E), pady=2)
+        self.employees_progress_bar.grid(row=6, column=0, sticky=(tk.W, tk.E), pady=2)
         
         self.employees_detail_label = ttk.Label(self.progress_frame, text="", font=("TkDefaultFont", 8))
-        self.employees_detail_label.grid(row=6, column=0, sticky=tk.W, pady=2)
-        
-        # Статистика скорости
-        self.speed_label = ttk.Label(self.progress_frame, text="", font=("TkDefaultFont", 8))
-        self.speed_label.grid(row=7, column=0, sticky=tk.W, pady=2)
+        self.employees_detail_label.grid(row=7, column=0, sticky=tk.W, pady=2)
+
     
     def setup_control_buttons(self, parent):
         """Настройка кнопок управления"""
@@ -229,7 +232,7 @@ class CreateFilesWindow:
             self.window.deiconify()
             self.window.lift()
             self.window.focus()
-    
+
     def select_staff_file(self):
         """Выбор файла с сотрудниками"""
         file_path = filedialog.askopenfilename(
@@ -252,13 +255,16 @@ class CreateFilesWindow:
             # Активируем кнопку выбора папки
             self.output_dir_btn.config(state=tk.NORMAL)
             
+            # ВАЖНО: сбрасываем кнопку создания в неактивное состояние
+            self.create_btn.config(state=tk.DISABLED)
+            
             # Автоматически запускаем валидацию
             self.validate_file()
         
         # Возвращаем фокус на главное окно после закрытия диалога
         self.window.lift()
         self.window.focus_force()
-    
+
     def _reset_state(self):
         """Полный сброс состояния окна"""
         self.output_dir_path = ""
@@ -280,6 +286,9 @@ class CreateFilesWindow:
             self.output_dir_path = dir_path
             self.output_dir_var.set(dir_path)
             self.add_info(f"Выбрана целевая папка: {dir_path}")
+            
+            # ВАЖНО: сбрасываем кнопку создания в неактивное состояние
+            self.create_btn.config(state=tk.DISABLED)
             
             # Проверяем существующие файлы
             self.add_info("")
@@ -627,25 +636,25 @@ class CreateFilesWindow:
         self.progress_frame.grid_remove()
         self.info_frame.grid(row=1, column=0, columnspan=3, pady=(0, 10), sticky=(tk.W, tk.E, tk.N, tk.S))
     
-    def on_progress_update(self, progress: ProcessingProgress):
+    def on_progress_update(self, progress):
         """Обработчик обновления общего прогресса"""
         def update_ui():
-            # Обновляем основную метку
-            self.progress_label.config(text=progress.current_operation)
+            # Общий процент
+            if progress.total_files > 0:
+                overall_percent = (progress.processed_files / progress.total_files) * 100
+                self.overall_progress_label.config(text=f"Общий прогресс: {overall_percent:.1f}%")
             
-            # Показываем скорость и оставшееся время
-            if progress.speed > 0 and progress.processed_files > 0:
-                seconds_per_file = 1.0 / progress.speed
-                remaining_files = max(0, progress.total_files - progress.processed_files)
-                remaining_time = max(0, remaining_files * seconds_per_file)
-                self.speed_label.config(
-                    text=f"Скорость: {seconds_per_file:.2f} сек/файл, "
-                         f"Осталось: {remaining_time:.0f} сек"
+            # Время
+            elapsed = (datetime.now() - progress.start_time).total_seconds()
+            if progress.processed_files > 0 and progress.total_files > 0:
+                speed = progress.processed_files / elapsed  # файлов в секунду
+                remaining_files = progress.total_files - progress.processed_files
+                remaining_time = remaining_files / speed if speed > 0 else 0
+                self.time_label.config(
+                    text=f"Прошло: {elapsed:.0f} сек, Осталось: {remaining_time:.0f} сек"
                 )
-            elif progress.processed_files == 0:
-                self.speed_label.config(text="Подготовка...")
             else:
-                self.speed_label.config(text="Завершение...")
+                self.time_label.config(text=f"Прошло: {elapsed:.0f} сек")
         
         self.window.after(0, update_ui)
     
