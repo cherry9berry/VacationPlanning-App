@@ -256,12 +256,12 @@ class CreateFilesWindow:
             self.output_dir_btn.config(state=tk.NORMAL)
             
             # ВАЖНО: сбрасываем кнопку создания в неактивное состояние
-            self.create_btn.config(state=tk.DISABLED)
+            self.create_btn.config(state=tk.DISABLED, text="Создать файлы", command=self.create_files)
             
             # Автоматически запускаем валидацию
             self.validate_file()
         
-        # Возвращаем фокус на главное окно после закрытия диалога
+        # Возвращаем фокус на окно создания файлов
         self.window.lift()
         self.window.focus_force()
 
@@ -275,7 +275,8 @@ class CreateFilesWindow:
         self.existing_files_info = {}
         if hasattr(self, '_employees'):
             delattr(self, '_employees')
-    
+
+
     def select_output_dir(self):
         """Выбор целевой папки"""
         dir_path = filedialog.askdirectory(
@@ -288,7 +289,7 @@ class CreateFilesWindow:
             self.add_info(f"Выбрана целевая папка: {dir_path}")
             
             # ВАЖНО: сбрасываем кнопку создания в неактивное состояние
-            self.create_btn.config(state=tk.DISABLED)
+            self.create_btn.config(state=tk.DISABLED, text="Создать файлы", command=self.create_files)
             
             # Проверяем существующие файлы
             self.add_info("")
@@ -298,10 +299,10 @@ class CreateFilesWindow:
             # Проверяем возможность активации кнопки создания
             self.check_create_button_state()
         
-        # Возвращаем фокус на главное окно после закрытия диалога
+        # Возвращаем фокус на окно создания файлов
         self.window.lift()
         self.window.focus_force()
-    
+
     def check_existing_files(self, dir_path):
         """Проверяет существующие файлы в папке и выводит подробную статистику"""
         try:
@@ -682,6 +683,7 @@ class CreateFilesWindow:
         
         self.window.after(0, update_ui)
     
+
     def on_processing_complete(self, operation_log):
         """Обработчик завершения создания файлов"""
         self.is_processing = False
@@ -712,8 +714,8 @@ class CreateFilesWindow:
             # Возвращаемся к отображению информации
             self.show_info_view()
             
-            # Заменяем кнопку на "Закрыть"
-            self.create_btn.config(text="Закрыть", command=self.on_closing, state=tk.NORMAL)
+            # ИСПРАВЛЕНИЕ: Оставляем возможность повторного запуска
+            self.create_btn.config(text="Создать файлы заново", command=self.restart_process, state=tk.NORMAL)
             
             # Отправляем статистику в главное окно (без messagebox)
             if self.main_window:
@@ -732,8 +734,9 @@ class CreateFilesWindow:
             
             # Возвращаемся к отображению информации
             self.show_info_view()
-            self.create_btn.config(text="Закрыть", command=self.on_closing, state=tk.NORMAL)
-    
+            self.create_btn.config(text="Попробовать снова", command=self.restart_process, state=tk.NORMAL)
+
+
     def on_processing_error(self, error_message):
         """Обработчик ошибки создания файлов"""
         self.is_processing = False
@@ -844,6 +847,30 @@ class CreateFilesWindow:
             if hasattr(self.main_window, 'add_info'):
                 self.main_window.add_info(f"Создание файлов: {message}", level)
     
+
+    def restart_process(self):
+        """Перезапуск процесса создания файлов"""
+        # Сбрасываем состояние обработки
+        self.is_processing = False
+        
+        # Очищаем информацию
+        self.info_text.delete(1.0, tk.END)
+        self.add_info("Готов к повторному запуску")
+        
+        # Если есть валидные данные - проверяем возможность создания
+        if (self.validation_result and 
+            self.validation_result.is_valid and 
+            self.output_dir_path):
+            
+            # Перепроверяем папку
+            self.add_info("")
+            self.add_info("Повторный анализ целевой папки...")
+            self.check_existing_files(self.output_dir_path)
+            self.check_create_button_state()
+        else:
+            self.add_info("Выберите файл с сотрудниками и целевую папку для начала работы")
+            self.create_btn.config(state=tk.DISABLED, text="Создать файлы", command=self.create_files)
+
     def on_closing(self):
         """Обработчик закрытия окна"""
         if self.is_processing:

@@ -82,7 +82,7 @@ class BlockReportCreator:
         if not Path(self.template_path).exists():
             print(f"ОШИБКА: Шаблон не найден по пути: {self.template_path}")
             return False
-        print(f"✓ Шаблон найден: {self.template_path}")
+        print(f"✓ Шаблон найден")
         return True
     
     def scan_employee_files(self, directory: str) -> List[str]:
@@ -503,6 +503,7 @@ def main():
     # 4. Читаем данные из файлов
     print("4. Чтение данных из файлов...")
     vacation_infos = []
+    invalid_files = []
     
     for i, file_path in enumerate(employee_files, 1):
         print(f"   Обработка {i}/{len(employee_files)}: {Path(file_path).name}")
@@ -511,7 +512,7 @@ def main():
         if vacation_info:
             vacation_infos.append(vacation_info)
         else:
-            print(f"   ПРЕДУПРЕЖДЕНИЕ: Не удалось обработать файл: {Path(file_path).name}")
+            invalid_files.append(Path(file_path).name)
     
     if not vacation_infos:
         print("ОШИБКА: Не удалось прочитать ни одного файла сотрудника")
@@ -519,6 +520,11 @@ def main():
         return
     
     print(f"✓ Успешно обработано файлов: {len(vacation_infos)} из {len(employee_files)}")
+    
+    if invalid_files:
+        print(f"Сотрудников с неверно заполненным файлом: {len(invalid_files)}")
+        for invalid_file in invalid_files:
+            print(f"   • {invalid_file}")
     
     # 5. Определяем название блока из первого сотрудника
     block_name = vacation_infos[0].employee.department1 or "Неизвестное подразделение"
@@ -545,15 +551,34 @@ def main():
         print(f"Подразделение: {block_name}")
         print(f"Сотрудников: {len(vacation_infos)}")
         
-        # Статистика по статусам
+        # Статистика по статусам с детализацией ошибок
         status_counts = {}
+        error_types = {}
+        
         for vi in vacation_infos:
             status = vi.status
             status_counts[status] = status_counts.get(status, 0) + 1
+            
+            # Детализация ошибок
+            if vi.validation_errors:
+                for error in vi.validation_errors:
+                    if "Недостаточно дней отпуска" in error:
+                        error_types["Недостаточно дней отпуска"] = error_types.get("Недостаточно дней отпуска", 0) + 1
+                    elif "пересечение периодов" in error.lower():
+                        error_types["Пересечение периодов"] = error_types.get("Пересечение периодов", 0) + 1
+                    elif "Не удалось определить" in error:
+                        error_types["Проблемы с подсчетом дней"] = error_types.get("Проблемы с подсчетом дней", 0) + 1
+                    else:
+                        error_types["Прочие ошибки"] = error_types.get("Прочие ошибки", 0) + 1
         
         print("Статистика планирования:")
         for status, count in status_counts.items():
             print(f"  {status}: {count}")
+        
+        if error_types:
+            print("Типы ошибок:")
+            for error_type, count in error_types.items():
+                print(f"  {error_type}: {count}")
         
         print()
         print("Отчет создан в текущей папке.")
