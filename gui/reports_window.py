@@ -22,6 +22,7 @@ class ReportTab:
     """Базовый класс для вкладок отчетов"""
     
     def __init__(self, parent_frame, config, processor, tab_type):
+        """Конструктор вкладки отчетов"""
         self.frame = parent_frame
         self.config = config
         self.processor = processor
@@ -32,6 +33,9 @@ class ReportTab:
         self.scan_data = {}
         self.is_processing = False
         self.selected_departments = []
+        
+        # НОВЫЕ ПЕРЕМЕННЫЕ для отслеживания повторных выборов
+        self.path_reselected = False
         
         self.setup_tab_ui()
     
@@ -199,13 +203,11 @@ class ReportTab:
             text_widget.clipboard_clear()
             text_widget.clipboard_append(all_text)
     
-
     def select_path(self):
         """Выбор пути"""
         dir_path = filedialog.askdirectory(title="Выберите папку с подразделениями")
         
         if not dir_path:
-            # Возвращаем фокус на окно отчетов
             self.frame.winfo_toplevel().lift()
             self.frame.winfo_toplevel().focus_force()
             return
@@ -215,7 +217,7 @@ class ReportTab:
         self.add_info(f"Выбрана папка: {dir_path}")
         self.add_info("Сканирование папки...")
         
-        # ВАЖНО: сбрасываем кнопку действия в неактивное состояние и восстанавливаем текст
+        # Сбрасываем кнопку в обычное состояние
         btn_text = "Создать отчеты по подразделениям" if self.tab_type == "departments" else "Создать общий отчет"
         self.action_btn.config(state=tk.DISABLED, text=btn_text, command=self.start_processing)
         
@@ -225,7 +227,6 @@ class ReportTab:
                 departments_info = self.processor.scan_target_directory(dir_path)
                 
                 if departments_info:
-                    # Формируем список для диалога выбора
                     potential_departments = []
                     for dept_name, files_count in departments_info.items():
                         potential_departments.append({
@@ -234,27 +235,22 @@ class ReportTab:
                             'files_count': files_count
                         })
                     
-                    # Показываем диалог выбора
                     selected_departments = self.show_departments_selection_dialog(potential_departments)
                     
                     if selected_departments:
                         self.selected_departments = selected_departments
-                        # Обновляем scan_data только выбранными
                         scan_data = {dept['name']: dept['files_count'] for dept in selected_departments}
                         self.frame.after(0, self.on_scan_complete, scan_data)
                     else:
-                        return  # Пользователь отменил выбор
+                        return
                 else:
                     self.frame.after(0, self.on_scan_complete, {})
             except Exception as e:
                 self.frame.after(0, self.on_scan_error, str(e))
         
         threading.Thread(target=scan_thread, daemon=True).start()
-        
-        # Возвращаем фокус на окно отчетов
         self.frame.winfo_toplevel().lift()
         self.frame.winfo_toplevel().focus_force()
-
 
     def show_departments_selection_dialog(self, departments):
         """Показывает диалог для выбора подразделений"""
@@ -494,6 +490,10 @@ class ReportTab:
                     self.add_info(f"Будет создан файл: ОБЩИЙ_ОТЧЕТ_{timestamp}.xlsx", "success")
                     self.add_info("Нажмите 'Создать общий отчет' для начала", "success")
                 
+                # При повторном анализе отмечаем что была активность
+                if hasattr(self, 'path_reselected'):
+                    self.path_reselected = True
+                
                 self.action_btn.config(state=tk.NORMAL)
             else:
                 self.add_info("Исправьте проблему с шаблоном для продолжения", "error")
@@ -501,7 +501,7 @@ class ReportTab:
         else:
             self.add_info("В выбранной папке не найдено подразделений с файлами сотрудников", "warning")
             self.action_btn.config(state=tk.DISABLED)
-    
+            
     def on_scan_error(self, error_message):
         """Обработчик ошибки сканирования"""
         self.add_info(f"Ошибка сканирования: {error_message}", "error")
@@ -539,18 +539,15 @@ class ReportTab:
         
         threading.Thread(target=processing_thread, daemon=True).start()
     
-
     def on_progress_update(self, progress):
         """Обработчик обновления прогресса"""
         def update_ui():
             # Общий процент
             if self.tab_type == "departments":
-                # Для отчетов по подразделениям - прогресс по файлам
                 if progress.total_files > 0:
                     overall_percent = (progress.processed_files / progress.total_files) * 100
                     self.overall_progress_label.config(text=f"Общий прогресс: {overall_percent:.1f}%")
             else:
-                # Для общего отчета - прогресс по блокам
                 if progress.total_blocks > 0:
                     overall_percent = (progress.processed_blocks / progress.total_blocks) * 100
                     self.overall_progress_label.config(text=f"Общий прогресс: {overall_percent:.1f}%")
@@ -558,81 +555,76 @@ class ReportTab:
             # Время
             elapsed = (datetime.now() - progress.start_time).total_seconds() if progress.start_time else 0
             
-            if self.tab_type == "departments" and progress.processed_files > 0 and progress.total_files > 0:
-                # Для отчетов по подразделениям
+            if progress.processed_files > 0 and progress.total_files > 0:
                 speed = progress.processed_files / elapsed if elapsed > 0 else 0
                 remaining_files = progress.total_files - progress.processed_files
                 remaining_time = remaining_files / speed if speed > 0 else 0
-                self.time_label.config(
-                    text=f"Прошло: {elapsed:.0f} сек, Осталось: {remaining_time:.0f} сек"
-                )
-            elif self.tab_type == "general" and progress.processed_blocks > 0 and progress.total_blocks > 0:
-                # Для общего отчета
+                self.time_label.config(text=f"Прошло: {elapsed:.0f} сек, Осталось: {remaining_time:.0f} сек")
+            elif progress.processed_blocks > 0 and progress.total_blocks > 0:
                 speed = progress.processed_blocks / elapsed if elapsed > 0 else 0
                 remaining_blocks = progress.total_blocks - progress.processed_blocks
                 remaining_time = remaining_blocks / speed if speed > 0 else 0
-                self.time_label.config(
-                    text=f"Прошло: {elapsed:.0f} сек, Осталось: {remaining_time:.0f} сек"
-                )
+                self.time_label.config(text=f"Прошло: {elapsed:.0f} сек, Осталось: {remaining_time:.0f} сек")
             else:
                 self.time_label.config(text=f"Прошло: {elapsed:.0f} сек")
             
-            # Обновляем прогресс по подразделениям
+            # Верхний прогресс-бар (отделы)
             if progress.total_blocks > 0:
                 dept_percent = (progress.processed_blocks / progress.total_blocks) * 100
                 self.dept_progress_bar['value'] = dept_percent
                 self.dept_detail_label.config(
-                    text=f"Подразделение {progress.processed_blocks}/{progress.total_blocks}: {progress.current_block or 'Готовится...'}"
+                    text=f"Отдел {progress.processed_blocks}/{progress.total_blocks}: {progress.current_block or 'Готовится...'}"
                 )
             
-            # Обновляем прогресс по файлам
+            # Нижний прогресс-бар (файлы)
             if self.tab_type == "departments":
-                # ИСПРАВЛЕНИЕ: Для отчетов по подразделениям показываем РЕАЛЬНЫЙ прогресс файлов в текущем отделе
-                if hasattr(self, 'selected_departments') and self.selected_departments and progress.processed_blocks > 0:
-                    current_dept_index = min(progress.processed_blocks - 1, len(self.selected_departments) - 1)
-                    if current_dept_index >= 0:
+                # ИСПРАВЛЕНИЕ: Для отчетов по подразделениям
+                if hasattr(self, 'selected_departments') and self.selected_departments:
+                    current_dept_index = progress.processed_blocks - 1 if progress.processed_blocks > 0 else 0
+                    
+                    if 0 <= current_dept_index < len(self.selected_departments):
                         current_dept = self.selected_departments[current_dept_index]
-                        total_files_in_dept = current_dept['files_count']
+                        files_in_dept = current_dept['files_count']
                         
-                        # Рассчитываем файлы обработанные в текущем отделе
-                        files_before_current_dept = sum(dept['files_count'] for dept in self.selected_departments[:current_dept_index])
-                        files_in_current_dept = max(0, progress.processed_files - files_before_current_dept)
-                        files_in_current_dept = min(files_in_current_dept, total_files_in_dept)
+                        # Рассчитываем прогресс файлов в текущем отделе
+                        files_before = sum(self.selected_departments[i]['files_count'] for i in range(current_dept_index))
+                        files_processed_in_current = max(0, progress.processed_files - files_before)
+                        files_processed_in_current = min(files_processed_in_current, files_in_dept)
                         
-                        if total_files_in_dept > 0:
-                            files_percent = (files_in_current_dept / total_files_in_dept) * 100
+                        if files_in_dept > 0:
+                            files_percent = (files_processed_in_current / files_in_dept) * 100
                             self.files_progress_bar['value'] = files_percent
                             self.files_detail_label.config(
-                                text=f"Файл {files_in_current_dept}/{total_files_in_dept} в отделе: {current_dept['name']}"
+                                text=f"Файл {files_processed_in_current}/{files_in_dept} в отделе"
                             )
+                        else:
+                            self.files_progress_bar['value'] = 0
+                            self.files_detail_label.config(text="Подготовка...")
+                    else:
+                        self.files_progress_bar['value'] = 0
+                        self.files_detail_label.config(text="Инициализация...")
             else:
-                # ИСПРАВЛЕНИЕ: Для общего отчета - эмуляция плавного прогресса по каждому отделу
+                # ИСПРАВЛЕНИЕ: Для общего отчета - эмуляция
                 if progress.total_blocks > 0:
-                    # Базовый прогресс по текущему блоку
+                    avg_time_per_block = 3.0  # секунд на блок
                     blocks_completed = progress.processed_blocks
-                    blocks_total = progress.total_blocks
                     
-                    # Прогресс внутри текущего блока (эмуляция)
-                    avg_time_per_block = 3.0  # Среднее время обработки блока в секундах
-                    current_block_progress = 0
-                    
-                    if blocks_completed < blocks_total:
-                        # Время с начала обработки текущего блока
-                        time_in_current_block = elapsed - (blocks_completed * avg_time_per_block)
-                        current_block_progress = min(100, (time_in_current_block / avg_time_per_block) * 100)
+                    if blocks_completed < progress.total_blocks:
+                        # Время в текущем блоке
+                        time_in_current = elapsed - (blocks_completed * avg_time_per_block)
+                        block_progress = min(100, max(0, (time_in_current / avg_time_per_block) * 100))
+                        
+                        self.files_progress_bar['value'] = block_progress
+                        dept_name = progress.current_block or f"Отдел {blocks_completed + 1}"
+                        self.files_detail_label.config(text=f"Обработка: {dept_name} ({block_progress:.0f}%)")
                     else:
-                        current_block_progress = 100
-                    
-                    self.files_progress_bar['value'] = current_block_progress
-                    
-                    if blocks_completed < blocks_total:
-                        current_dept_name = progress.current_block or f"Отдел {blocks_completed + 1}"
-                        self.files_detail_label.config(text=f"Обработка отдела: {current_dept_name}")
-                    else:
-                        self.files_detail_label.config(text="Завершение обработки...")
+                        self.files_progress_bar['value'] = 100
+                        self.files_detail_label.config(text="Завершение...")
+                else:
+                    self.files_progress_bar['value'] = 0
+                    self.files_detail_label.config(text="Подготовка...")
         
         self.frame.after(0, update_ui)
-
 
     def show_progress_view(self):
         """Показать прогресс"""
@@ -651,8 +643,8 @@ class ReportTab:
         if operation_log.status == ProcessingStatus.SUCCESS:
             self.add_info_to_existing("")
             self.add_info_to_existing("=" * 50)
-            self.add_info_to_existing("СОЗДАНИЕ ОТЧЕТОВ УСПЕШНО ЗАВЕРШЕНО!", "success")
-            self.add_info_to_existing(f"Время выполнения: {operation_log.duration:.1f} сек")
+            self.add_info_to_existing("ОТЧЕТЫ УСПЕШНО СОЗДАНЫ!", "success")
+            self.add_info_to_existing(f"Время: {operation_log.duration:.1f} сек")
             self.add_info_to_existing("=" * 50)
             
             for entry in operation_log.entries:
@@ -660,15 +652,25 @@ class ReportTab:
                     self.add_info_to_existing(f"ИТОГ: {entry.message}", "success")
         else:
             self.add_info_to_existing("")
-            self.add_info_to_existing("СОЗДАНИЕ ОТЧЕТОВ ЗАВЕРШЕНО С ОШИБКАМИ", "error")
+            self.add_info_to_existing("ОШИБКА СОЗДАНИЯ ОТЧЕТОВ!", "error")
             for entry in operation_log.entries:
                 if entry.level == "ERROR":
-                    self.add_info_to_existing(f"Ошибка: {entry.message}", "error")
+                    self.add_info_to_existing(f"ОШИБКА: {entry.message}", "error")
+            
+            # Показываем messagebox с ошибкой
+            messagebox.showerror("Ошибка создания отчетов", "Создание отчетов завершено с ошибками. См. подробности в окне.")
         
         self.show_info_view()
-        # ИСПРАВЛЕНИЕ: Оставляем возможность повторного запуска
-        btn_text = "Создать отчеты заново" if self.tab_type == "departments" else "Создать общий отчет заново"
-        self.action_btn.config(text=btn_text, command=self.restart_process, state=tk.NORMAL)
+        # Всегда показываем кнопку "Закрыть"
+        self.action_btn.config(text="Закрыть", command=self.close_window, state=tk.NORMAL)
+        
+        # ИСПРАВЛЕНИЕ: Показываем кнопку "Закрыть", но если был повторный выбор - показываем кнопку создания
+        if hasattr(self, 'path_reselected') and self.path_reselected:
+            btn_text = "Создать отчеты по подразделениям" if self.tab_type == "departments" else "Создать общий отчет"
+            self.action_btn.config(text=btn_text, command=self.start_processing, state=tk.NORMAL)
+            self.path_reselected = False
+        else:
+            self.action_btn.config(text="Закрыть", command=self.close_window, state=tk.NORMAL)
 
     def on_processing_error(self, error_message):
         """Ошибка обработки"""

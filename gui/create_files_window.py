@@ -22,7 +22,9 @@ from models import ProcessingProgress, ProcessingStatus
 class CreateFilesWindow:
     """Окно для создания файлов отпусков сотрудников"""
     
+
     def __init__(self, parent: tk.Tk, config: Config, main_window):
+        """Конструктор окна создания файлов"""
         self.parent = parent
         self.config = config
         self.main_window = main_window
@@ -38,10 +40,14 @@ class CreateFilesWindow:
         self.new_employees_count = 0
         self.skip_employees_count = 0
         
+        # НОВЫЕ ПЕРЕМЕННЫЕ для отслеживания повторных выборов
+        self.file_reselected = False
+        self.dir_reselected = False
+        
         # Создаем окно
         self.window = None
         self.setup_ui()
-    
+
     def setup_ui(self):
         """Настройка пользовательского интерфейса"""
         self.window = tk.Toplevel(self.parent)
@@ -255,7 +261,7 @@ class CreateFilesWindow:
             # Активируем кнопку выбора папки
             self.output_dir_btn.config(state=tk.NORMAL)
             
-            # ВАЖНО: сбрасываем кнопку создания в неактивное состояние
+            # ВАЖНО: сбрасываем кнопку создания в обычное состояние
             self.create_btn.config(state=tk.DISABLED, text="Создать файлы", command=self.create_files)
             
             # Автоматически запускаем валидацию
@@ -276,7 +282,6 @@ class CreateFilesWindow:
         if hasattr(self, '_employees'):
             delattr(self, '_employees')
 
-
     def select_output_dir(self):
         """Выбор целевой папки"""
         dir_path = filedialog.askdirectory(
@@ -288,7 +293,7 @@ class CreateFilesWindow:
             self.output_dir_var.set(dir_path)
             self.add_info(f"Выбрана целевая папка: {dir_path}")
             
-            # ВАЖНО: сбрасываем кнопку создания в неактивное состояние
+            # ВАЖНО: сбрасываем кнопку создания в обычное состояние
             self.create_btn.config(state=tk.DISABLED, text="Создать файлы", command=self.create_files)
             
             # Проверяем существующие файлы
@@ -564,7 +569,7 @@ class CreateFilesWindow:
             clean_name = clean_name[:100]
         
         return clean_name or "unnamed"
-    
+
     def check_create_button_state(self):
         """Проверяет и обновляет состояние кнопки создания файлов"""
         # Кнопка активна только если:
@@ -572,14 +577,17 @@ class CreateFilesWindow:
         # 2. Выбрана целевая папка
         # 3. Есть сотрудники для обработки (new_employees_count > 0)
         # 4. Не идет процесс обработки
+        # 5. Кнопка еще не в состоянии "Закрыть"
         if (self.validation_result and 
             self.validation_result.is_valid and 
             self.output_dir_path and 
             hasattr(self, 'new_employees_count') and
             self.new_employees_count > 0 and
-            not self.is_processing):
-            self.create_btn.config(state=tk.NORMAL)
-        else:
+            not self.is_processing and
+            self.create_btn['text'] != "Закрыть"):
+            
+            self.create_btn.config(state=tk.NORMAL, text="Создать файлы", command=self.create_files)
+        elif self.create_btn['text'] != "Закрыть":
             self.create_btn.config(state=tk.DISABLED)
     
     def create_files(self):
@@ -683,7 +691,6 @@ class CreateFilesWindow:
         
         self.window.after(0, update_ui)
     
-
     def on_processing_complete(self, operation_log):
         """Обработчик завершения создания файлов"""
         self.is_processing = False
@@ -700,12 +707,9 @@ class CreateFilesWindow:
             # Добавляем информацию о результатах операции
             for entry in operation_log.entries:
                 if entry.level == "INFO":
-                    # Выделяем жирным важную информацию
                     if "Создано:" in entry.message or "создано" in entry.message.lower():
-                        # Исправляем склонение в итоговом сообщении
                         message = entry.message
                         if "из" in message and "сотрудников" in message:
-                            # Заменяем "сотрудников" на "сотр."
                             message = message.replace("сотрудников", "сотр.")
                         self.add_info_to_existing(f"ИТОГ: {message}", "success")
                     else:
@@ -714,27 +718,24 @@ class CreateFilesWindow:
             # Возвращаемся к отображению информации
             self.show_info_view()
             
-            # ИСПРАВЛЕНИЕ: Оставляем возможность повторного запуска
-            self.create_btn.config(text="Создать файлы заново", command=self.restart_process, state=tk.NORMAL)
-            
-            # Отправляем статистику в главное окно (без messagebox)
-            if self.main_window:
-                summary = f"Создание файлов завершено за {operation_log.duration:.1f} сек"
-                self.main_window.add_info(summary, "success")
+            # ИСПРАВЛЕНИЕ: Всегда показываем кнопку "Закрыть"
+            self.create_btn.config(text="Закрыть", command=self.on_closing, state=tk.NORMAL)
             
         else:
-            self.add_info("Создание файлов завершено с ошибками", "error")
+            self.add_info_to_existing("")
+            self.add_info_to_existing("СОЗДАНИЕ ФАЙЛОВ ЗАВЕРШЕНО С ОШИБКАМИ!", "error")
             
             # Показываем ошибки
             for entry in operation_log.entries:
                 if entry.level == "ERROR":
-                    self.add_info(f"Ошибка: {entry.message}", "error")
-            
-            messagebox.showerror("Ошибка", "Создание файлов завершено с ошибками. См. информацию.")
+                    self.add_info_to_existing(f"ОШИБКА: {entry.message}", "error")
             
             # Возвращаемся к отображению информации
             self.show_info_view()
-            self.create_btn.config(text="Попробовать снова", command=self.restart_process, state=tk.NORMAL)
+            self.create_btn.config(text="Закрыть", command=self.on_closing, state=tk.NORMAL)
+            
+            # Показываем messagebox с ошибкой
+            messagebox.showerror("Ошибка создания файлов", "Создание файлов завершено с ошибками. См. подробности в окне.")
 
 
     def on_processing_error(self, error_message):

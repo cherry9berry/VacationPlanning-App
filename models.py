@@ -39,6 +39,14 @@ class Employee:
     department4: str = ""
     file_path: str = ""
     
+    # Новые поля
+    location: str = ""  # Локация сотрудника
+    vacation_remainder: str = ""  # Остатки отпуска сотрудника за прошлый период
+    hire_date: str = ""  # Дата приема сотрудника
+    period_cutoff_date: str = ""  # Дата отсечки периода
+    additional_vacation_nrd: str = ""  # Дополнительный отпуск за НРД
+    additional_vacation_north: str = ""  # Дополнительный отпуск Северный
+    
     def __post_init__(self):
         # Очистка строк от лишних пробелов
         self.full_name = self.full_name.strip()
@@ -48,6 +56,12 @@ class Employee:
         self.department2 = self.department2.strip()
         self.department3 = self.department3.strip()
         self.department4 = self.department4.strip()
+        self.location = self.location.strip()
+        self.vacation_remainder = self.vacation_remainder.strip()
+        self.hire_date = self.hire_date.strip()
+        self.period_cutoff_date = self.period_cutoff_date.strip()
+        self.additional_vacation_nrd = self.additional_vacation_nrd.strip()
+        self.additional_vacation_north = self.additional_vacation_north.strip()
 
 
 @dataclass

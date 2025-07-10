@@ -169,7 +169,7 @@ class Validator:
                         employee.full_name = value
                     elif field_name == "Табельный номер":
                         employee.tab_number = value
-                    elif field_name == "Должность":  # Добавляем поддержку должности
+                    elif field_name == "Должность":
                         employee.position = value
                     elif field_name == "Подразделение 1":
                         employee.department1 = value
@@ -179,6 +179,19 @@ class Validator:
                         employee.department3 = value
                     elif field_name == "Подразделение 4":
                         employee.department4 = value
+                    # Новые поля
+                    elif field_name == "Локация":
+                        employee.location = value
+                    elif field_name == "Остатки отпуска":
+                        employee.vacation_remainder = value
+                    elif field_name == "Дата приема":
+                        employee.hire_date = value
+                    elif field_name == "Дата отсечки периода":
+                        employee.period_cutoff_date = value
+                    elif field_name == "Дополнительный отпуск НРД":
+                        employee.additional_vacation_nrd = value
+                    elif field_name == "Дополнительный отпуск Северный":
+                        employee.additional_vacation_north = value
             
             # Добавляем только если есть обязательные поля
             if employee.full_name and employee.tab_number and employee.department1:
@@ -232,3 +245,4 @@ class Validator:
             if emp.tab_number:
                 unique_tabs.add(emp.tab_number)
         return len(unique_tabs)
+    

@@ -29,7 +29,7 @@ class VacationProcessor:
         self.validator = Validator(config)
         self.excel_handler = ExcelHandler(config)
         self.file_manager = FileManager(config)
-    
+
     def create_employee_files_to_existing(
         self, 
         staff_file_path: str, 
@@ -39,17 +39,7 @@ class VacationProcessor:
         file_progress_callback: Optional[Callable[[int, int, str], None]] = None
     ) -> OperationLog:
         """
-        Создает файлы сотрудников в существующей папке (без создания новой структуры vacation_files_*)
-        
-        Args:
-            staff_file_path: путь к файлу штатного расписания
-            target_directory: существующая целевая папка для сохранения
-            progress_callback: функция для обновления общего прогресса
-            department_progress_callback: функция для обновления прогресса по отделам (current, total, name)
-            file_progress_callback: функция для обновления прогресса по файлам (current, total, name)
-            
-        Returns:
-            OperationLog: лог операции
+        Создает файлы сотрудников в существующей папке
         """
         operation_log = OperationLog("Создание файлов сотрудников в существующей структуре")
         operation_log.add_entry("INFO", "Начало создания файлов сотрудников")
@@ -85,7 +75,7 @@ class VacationProcessor:
             
             employees_by_dept = self.file_manager.group_employees_by_department(employees)
             
-            # 3. Создание структуры папок (используем существующую папку)
+            # 3. Создание структуры папок
             progress.current_operation = "Подготовка структуры папок"
             if progress_callback:
                 progress_callback(progress)
@@ -107,6 +97,7 @@ class VacationProcessor:
             # 5. Создание файлов по отделам
             success_count = 0
             skipped_count = 0
+            error_count = 0
             
             for dept_idx, (dept_name, dept_employees) in enumerate(employees_by_dept.items()):
                 progress.current_operation = f"Обработка отдела: {dept_name}"
@@ -125,9 +116,6 @@ class VacationProcessor:
                     continue
                 
                 # Обрабатываем сотрудников в текущем отделе
-                dept_success = 0
-                dept_skipped = 0
-                
                 for emp_idx, employee in enumerate(dept_employees):
                     try:
                         # Генерируем имя файла
@@ -137,18 +125,30 @@ class VacationProcessor:
                         # Проверяем существование файла
                         if output_path.exists():
                             skipped_count += 1
-                            dept_skipped += 1
                             message = f"Пропущен: {employee.full_name}"
                         else:
-                            # Создаем файл сотрудника
-                            create_success = self.excel_handler.create_employee_file(employee, str(output_path))
+                            # Создаем файл сотрудника - ВАЖНО: обрабатываем исключения
+                            try:
+                                create_success = self.excel_handler.create_employee_file(employee, str(output_path))
+                                
+                                if create_success:
+                                    success_count += 1
+                                    message = f"Создан: {employee.full_name}"
+                                else:
+                                    error_count += 1
+                                    message = f"Ошибка: {employee.full_name}"
+                                    operation_log.add_entry("ERROR", f"Не удалось создать файл для {employee.full_name}")
                             
-                            if create_success:
-                                success_count += 1
-                                dept_success += 1
-                                message = f"Создан: {employee.full_name}"
-                            else:
-                                message = f"Ошибка: {employee.full_name}"
+                            except Exception as e:
+                                error_count += 1
+                                message = f"КРИТИЧЕСКАЯ ОШИБКА: {employee.full_name}"
+                                operation_log.add_entry("ERROR", f"Критическая ошибка создания файла {employee.full_name}: {str(e)}")
+                                
+                                # Если есть ошибки в шаблоне - прерываем весь процесс
+                                if "rules" in str(e).lower() or "шаблон" in str(e).lower() or "правил" in str(e).lower():
+                                    operation_log.add_entry("ERROR", f"КРИТИЧЕСКАЯ ОШИБКА ШАБЛОНА: {str(e)}")
+                                    operation_log.finish(ProcessingStatus.ERROR)
+                                    return operation_log
                         
                         progress.processed_files += 1
                         
@@ -164,13 +164,14 @@ class VacationProcessor:
                         time.sleep(0.05)
                         
                     except Exception as e:
+                        error_count += 1
                         self.logger.error(f"Ошибка создания файла для {employee.full_name}: {e}")
                         progress.processed_files += 1
                         if file_progress_callback:
                             file_progress_callback(emp_idx + 1, len(dept_employees), f"Ошибка: {employee.full_name}")
                 
                 # Логируем результат по отделу
-                operation_log.add_entry("INFO", f"Отдел {dept_name}: создано {dept_success}, пропущено {dept_skipped}")
+                operation_log.add_entry("INFO", f"Отдел {dept_name}: создано {success_count - (dept_idx * len(dept_employees) if dept_idx > 0 else 0)}, пропущено файлов")
                 
                 # Завершаем обработку отдела
                 progress.processed_blocks = dept_idx + 1
@@ -187,9 +188,14 @@ class VacationProcessor:
             if progress_callback:
                 progress_callback(progress)
             
-            operation_log.add_entry("INFO", f"Создано файлов сотрудников: {success_count}, пропущено: {skipped_count} из {total_employees}")
-            operation_log.add_entry("INFO", f"Время выполнения: {duration.total_seconds():.1f} сек")
-            operation_log.finish(ProcessingStatus.SUCCESS)
+            # Проверяем результат
+            if error_count > 0:
+                operation_log.add_entry("ERROR", f"Обработка завершена с ошибками: успешно {success_count}, ошибок {error_count}, пропущено {skipped_count}")
+                operation_log.finish(ProcessingStatus.ERROR)
+            else:
+                operation_log.add_entry("INFO", f"Создано файлов сотрудников: {success_count}, пропущено: {skipped_count} из {total_employees}")
+                operation_log.add_entry("INFO", f"Время выполнения: {duration.total_seconds():.1f} сек")
+                operation_log.finish(ProcessingStatus.SUCCESS)
             
             return operation_log
             
@@ -200,7 +206,7 @@ class VacationProcessor:
             operation_log.finish(ProcessingStatus.ERROR)
             
             return operation_log
-    
+
     def scan_target_directory(self, target_directory: str) -> Dict[str, int]:
         """
         Сканирует целевую папку и возвращает информацию о подразделениях
