@@ -545,10 +545,17 @@ class ReportTab:
                 self.frame.after(0, self.on_processing_error, str(e))
         
         threading.Thread(target=processing_thread, daemon=True).start()
-        
+
     def on_progress_update(self, progress):
         """Обработчик обновления прогресса"""
         def update_ui():
+            # ИСПРАВЛЕНИЕ: Проверяем что окно еще существует
+            try:
+                if not self.frame.winfo_exists():
+                    return
+            except tk.TclError:
+                return
+            
             # Общий процент
             if self.tab_type == "departments":
                 if progress.total_files > 0:
@@ -562,7 +569,6 @@ class ReportTab:
             # Время
             elapsed = (datetime.now() - progress.start_time).total_seconds() if progress.start_time else 0
             
-            # ИСПРАВЛЕННЫЙ РАСЧЕТ ВРЕМЕНИ
             if self.tab_type == "departments":
                 if progress.processed_files > 0 and progress.total_files > 0:
                     speed = progress.processed_files / elapsed if elapsed > 0 else 0
@@ -580,7 +586,7 @@ class ReportTab:
                 else:
                     self.time_label.config(text=f"Прошло: {elapsed:.0f} сек")
             
-            # ИСПРАВЛЕННЫЙ ВЕРХНИЙ ПРОГРЕСС-БАР (отделы)
+            # Верхний прогресс-бар (отделы)
             if progress.total_blocks > 0:
                 dept_percent = (progress.processed_blocks / progress.total_blocks) * 100
                 self.dept_progress_bar['value'] = dept_percent
@@ -592,15 +598,14 @@ class ReportTab:
             if self.tab_type == "departments":
                 # ДЛЯ ОТЧЕТОВ ПО ПОДРАЗДЕЛЕНИЯМ - реальные файлы в текущем отделе
                 if hasattr(self, 'selected_departments') and self.selected_departments:
-                    current_dept_index = progress.processed_blocks - 1 if progress.processed_blocks > 0 else 0
+                    current_dept_index = progress.processed_blocks
                     
                     if 0 <= current_dept_index < len(self.selected_departments):
                         current_dept = self.selected_departments[current_dept_index]
                         files_in_dept = current_dept['files_count']
                         
-                        # ИСПРАВЛЕНИЕ: Правильный расчет файлов в текущем отделе
                         if files_in_dept > 0:
-                            # Рассчитываем сколько файлов уже обработано ДО текущего отдела
+                            # ИСПРАВЛЕНИЕ: Правильный расчет файлов в текущем отделе
                             files_before_current = sum(
                                 self.selected_departments[i]['files_count'] 
                                 for i in range(current_dept_index)
@@ -627,13 +632,13 @@ class ReportTab:
             else:
                 # ДЛЯ ОБЩЕГО ОТЧЕТА - эмуляция обработки каждого отдела
                 if progress.total_blocks > 0:
-                    avg_time_per_block = 3.0  # секунд на блок
+                    avg_time_per_block = 2.0  # секунд на блок (как в processor.py)
                     blocks_completed = progress.processed_blocks
                     
                     if blocks_completed < progress.total_blocks:
                         # ИСПРАВЛЕНИЕ: Время в текущем блоке
-                        time_in_current = elapsed - (blocks_completed * avg_time_per_block)
-                        block_progress = min(100, max(0, (time_in_current / avg_time_per_block) * 100))
+                        time_in_current_block = elapsed - (blocks_completed * avg_time_per_block)
+                        block_progress = min(100, max(0, (time_in_current_block / avg_time_per_block) * 100))
                         
                         self.files_progress_bar['value'] = block_progress
                         dept_name = progress.current_block or f"Отдел {blocks_completed + 1}"
@@ -645,7 +650,13 @@ class ReportTab:
                     self.files_progress_bar['value'] = 0
                     self.files_detail_label.config(text="Подготовка...")
         
-        self.frame.after(0, update_ui)
+        # ИСПРАВЛЕНИЕ: Проверяем что фрейм еще существует перед обновлением
+        try:
+            if self.frame.winfo_exists():
+                self.frame.after(0, update_ui)
+        except tk.TclError:
+            # Окно уже закрыто, игнорируем
+            pass
 
     def show_progress_view(self):
         """Показать прогресс"""
@@ -659,6 +670,13 @@ class ReportTab:
 
     def on_processing_complete(self, operation_log):
         """Завершение обработки"""
+        # ИСПРАВЛЕНИЕ: Проверяем что окно еще существует
+        try:
+            if not self.frame.winfo_exists():
+                return
+        except tk.TclError:
+            return
+        
         self.is_processing = False
         
         if operation_log.status == ProcessingStatus.SUCCESS:
@@ -686,6 +704,7 @@ class ReportTab:
         # ИСПРАВЛЕНИЕ: ВСЕГДА показываем "Закрыть" после завершения
         self.action_btn.config(text="Закрыть", command=self.close_window, state=tk.NORMAL)
 
+
     def on_processing_error(self, error_message):
         """Ошибка обработки"""
         self.is_processing = False
@@ -699,9 +718,14 @@ class ReportTab:
         # Будет реализовано в главном классе
         pass
     
-    def add_info(self, message: str, level: str = "info"):
-        """Добавляет информационное сообщение"""
-        timestamp = datetime.now().strftime("%H:%M:%S")
+    def add_info_to_existing(self, message: str, level: str = "info"):
+        """Добавляет информацию без временной метки"""
+        # ИСПРАВЛЕНИЕ: Проверяем что виджет еще существует
+        try:
+            if not self.info_text.winfo_exists():
+                return
+        except tk.TclError:
+            return
         
         if level in ["success", "error", "warning"]:
             colors = {"warning": "#FF8C00", "error": "red", "success": "green"}
@@ -712,19 +736,19 @@ class ReportTab:
             font_style = ("TkDefaultFont", 9)
         
         if message.strip():
-            self.info_text.insert(tk.END, f"[{timestamp}] {message}\n")
+            self.info_text.insert(tk.END, f"{message}\n")
         else:
             self.info_text.insert(tk.END, "\n")
         
         if level in ["success", "error", "warning"]:
             start_line = self.info_text.index(tk.END + "-2l linestart")
             end_line = self.info_text.index(tk.END + "-1l lineend")
-            tag_name = f"color_{level}_{timestamp}"
+            tag_name = f"color_{level}_no_time"
             self.info_text.tag_add(tag_name, start_line, end_line)
             self.info_text.tag_config(tag_name, foreground=color, font=font_style)
         
         self.info_text.see(tk.END)
-    
+
     def add_info_to_existing(self, message: str, level: str = "info"):
         """Добавляет информацию без временной метки"""
         if level in ["success", "error", "warning"]:

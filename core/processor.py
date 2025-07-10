@@ -252,11 +252,12 @@ class VacationProcessor:
         
         try:
             start_time = datetime.now()
+            total_files = sum(dept['files_count'] for dept in selected_departments)
             progress = ProcessingProgress(
                 current_operation="Подготовка к созданию отчетов",
                 start_time=start_time,
                 total_blocks=len(selected_departments),
-                total_files=sum(dept['files_count'] for dept in selected_departments)
+                total_files=total_files
             )
             
             if progress_callback:
@@ -264,10 +265,12 @@ class VacationProcessor:
             
             success_count = 0
             error_count = 0
+            files_processed_total = 0
             
             for i, dept_info in enumerate(selected_departments):
                 dept_name = dept_info['name']
                 dept_path = Path(dept_info['path'])
+                files_in_dept = dept_info['files_count']
                 
                 progress.current_operation = f"Создание отчета: {dept_name}"
                 progress.current_block = dept_name
@@ -286,14 +289,17 @@ class VacationProcessor:
                     employee_files = self.file_manager._scan_department_files(dept_path)
                     vacation_infos = []
                     
-                    files_processed = 0
+                    files_processed_in_dept = 0
                     for file_path in employee_files:
                         vacation_info = self.excel_handler.read_vacation_info_from_file(file_path)
                         if vacation_info:
                             vacation_infos.append(vacation_info)
                         
-                        files_processed += 1
-                        progress.processed_files = progress.processed_files + 1
+                        files_processed_in_dept += 1
+                        files_processed_total += 1
+                        progress.processed_files = files_processed_total
+                        
+                        # ИСПРАВЛЕНИЕ: Обновляем прогресс для каждого файла
                         if progress_callback:
                             progress_callback(progress)
                         
@@ -348,7 +354,7 @@ class VacationProcessor:
             operation_log.finish(ProcessingStatus.ERROR)
             
             return operation_log
-    
+
     def create_general_report(
         self,
         selected_departments: List[Dict],
@@ -413,7 +419,8 @@ class VacationProcessor:
                     operation_log.add_entry("ERROR", f"Отчет по блоку не найден для {dept_name}")
                     self.logger.error(f"Отчет по блоку не найден для подразделения: {dept_name}")
                 
-                time.sleep(0.2)  # Небольшая задержка для демонстрации прогресса
+                # ИСПРАВЛЕНИЕ: Эмуляция работы с блоком (~2 секунды)
+                time.sleep(2.0)
             
             # Если есть отсутствующие отчеты - прерываем выполнение
             if missing_reports:
@@ -426,6 +433,7 @@ class VacationProcessor:
             # Создаем общий отчет
             progress.current_operation = "Создание общего отчета"
             progress.processed_files = len(selected_departments)
+            progress.processed_blocks = len(selected_departments)
             if progress_callback:
                 progress_callback(progress)
             
@@ -466,7 +474,7 @@ class VacationProcessor:
             operation_log.finish(ProcessingStatus.ERROR)
             
             return operation_log
-    
+
     def _find_latest_block_report(self, dept_path: str, dept_name: str) -> Optional[str]:
         """
         Находит последний отчет по блоку для подразделения
