@@ -1,11 +1,15 @@
 # Byte-compiled / optimized / DLL files
 __pycache__/
+build/
+dist/
+test/
+tests/
 *.py[cod]
 *$py.class
 test/
 tests/
 sandbox/
-
+backLog_aka_toDo.md
 # C extensions
 *.so
 

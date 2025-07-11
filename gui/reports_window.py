@@ -39,6 +39,39 @@ class ReportTab:
         
         self.setup_tab_ui()
     
+    def add_info(self, message: str, level: str = "info"):
+        """Добавляет информационное сообщение"""
+        # ИСПРАВЛЕНИЕ: Проверяем что виджет еще существует
+        try:
+            if not self.info_text.winfo_exists():
+                return
+        except tk.TclError:
+            return
+        
+        timestamp = datetime.now().strftime("%H:%M:%S")
+        
+        if level in ["success", "error", "warning"]:
+            colors = {"warning": "#FF8C00", "error": "red", "success": "green"}
+            color = colors[level]
+            font_style = ("TkDefaultFont", 9, "bold")
+        else:
+            color = "black"
+            font_style = ("TkDefaultFont", 9)
+        
+        if message.strip():
+            self.info_text.insert(tk.END, f"[{timestamp}] {message}\n")
+        else:
+            self.info_text.insert(tk.END, "\n")
+        
+        if level in ["success", "error", "warning"]:
+            start_line = self.info_text.index(tk.END + "-2l linestart")
+            end_line = self.info_text.index(tk.END + "-1l lineend")
+            tag_name = f"color_{level}_{timestamp}"
+            self.info_text.tag_add(tag_name, start_line, end_line)
+            self.info_text.tag_config(tag_name, foreground=color, font=font_style)
+        
+        self.info_text.see(tk.END)
+
     def restart_process(self):
         """Перезапуск процесса создания отчетов"""
         # Сбрасываем состояние обработки
@@ -633,17 +666,32 @@ class ReportTab:
                 # ДЛЯ ОБЩЕГО ОТЧЕТА - эмуляция обработки каждого отдела
                 if progress.total_blocks > 0:
                     avg_time_per_block = 2.0  # секунд на блок (как в processor.py)
-                    blocks_completed = progress.processed_blocks
                     
-                    if blocks_completed < progress.total_blocks:
-                        # ИСПРАВЛЕНИЕ: Время в текущем блоке
-                        time_in_current_block = elapsed - (blocks_completed * avg_time_per_block)
-                        block_progress = min(100, max(0, (time_in_current_block / avg_time_per_block) * 100))
+                    # ИСПРАВЛЕНИЕ: Определяем текущий блок корректно
+                    current_block_index = progress.processed_blocks
+                    
+                    if current_block_index < progress.total_blocks:
+                        # Обрабатываем текущий блок
+                        time_spent_on_completed_blocks = current_block_index * avg_time_per_block
+                        time_in_current_block = max(0, elapsed - time_spent_on_completed_blocks)
+                        
+                        # Прогресс в текущем блоке (от 0 до 100%)
+                        block_progress = min(100, (time_in_current_block / avg_time_per_block) * 100)
                         
                         self.files_progress_bar['value'] = block_progress
-                        dept_name = progress.current_block or f"Отдел {blocks_completed + 1}"
+                        
+                        # Название текущего блока
+                        if hasattr(self, 'selected_departments') and self.selected_departments:
+                            if current_block_index < len(self.selected_departments):
+                                dept_name = self.selected_departments[current_block_index]['name']
+                            else:
+                                dept_name = progress.current_block or f"Отдел {current_block_index + 1}"
+                        else:
+                            dept_name = progress.current_block or f"Отдел {current_block_index + 1}"
+                        
                         self.files_detail_label.config(text=f"Обработка: {dept_name} ({block_progress:.0f}%)")
                     else:
+                        # Все блоки завершены
                         self.files_progress_bar['value'] = 100
                         self.files_detail_label.config(text="Завершение...")
                 else:
@@ -789,6 +837,8 @@ class ReportsWindow:
         self.general_tab = None
         
         self.setup_ui()
+    
+
     
     def setup_ui(self):
         """Настройка пользовательского интерфейса"""
