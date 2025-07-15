@@ -19,6 +19,9 @@ from core.validator import Validator
 from core.excel_handler import ExcelHandler
 from core.file_manager import FileManager
 
+import shutil
+import re
+
 
 class VacationProcessor:
     """Основной класс для обработки операций с отпусками"""
@@ -95,9 +98,9 @@ class VacationProcessor:
                 progress_callback(progress)
             
             # 5. Создание файлов по отделам
-            success_count = 0
-            skipped_count = 0
-            error_count = 0
+            total_success_count = 0
+            total_skipped_count = 0
+            total_error_count = 0
             
             for dept_idx, (dept_name, dept_employees) in enumerate(employees_by_dept.items()):
                 progress.current_operation = f"Обработка отдела: {dept_name}"
@@ -115,6 +118,11 @@ class VacationProcessor:
                     operation_log.add_entry("ERROR", f"Папка для отдела {dept_name} не найдена")
                     continue
                 
+                # Счетчики для текущего отдела
+                dept_success_count = 0
+                dept_skipped_count = 0
+                dept_error_count = 0
+                
                 # Обрабатываем сотрудников в текущем отделе
                 for emp_idx, employee in enumerate(dept_employees):
                     try:
@@ -124,23 +132,27 @@ class VacationProcessor:
                         
                         # Проверяем существование файла
                         if output_path.exists():
-                            skipped_count += 1
+                            dept_skipped_count += 1
+                            total_skipped_count += 1
                             message = f"Пропущен: {employee.full_name}"
                         else:
-                            # Создаем файл сотрудника - ВАЖНО: обрабатываем исключения
+                            # Создаем файл сотрудника
                             try:
                                 create_success = self.excel_handler.create_employee_file(employee, str(output_path))
                                 
                                 if create_success:
-                                    success_count += 1
+                                    dept_success_count += 1
+                                    total_success_count += 1
                                     message = f"Создан: {employee.full_name}"
                                 else:
-                                    error_count += 1
+                                    dept_error_count += 1
+                                    total_error_count += 1
                                     message = f"Ошибка: {employee.full_name}"
                                     operation_log.add_entry("ERROR", f"Не удалось создать файл для {employee.full_name}")
                             
                             except Exception as e:
-                                error_count += 1
+                                dept_error_count += 1
+                                total_error_count += 1
                                 message = f"КРИТИЧЕСКАЯ ОШИБКА: {employee.full_name}"
                                 operation_log.add_entry("ERROR", f"Критическая ошибка создания файла {employee.full_name}: {str(e)}")
                                 
@@ -164,14 +176,16 @@ class VacationProcessor:
                         time.sleep(0.05)
                         
                     except Exception as e:
-                        error_count += 1
+                        dept_error_count += 1
+                        total_error_count += 1
                         self.logger.error(f"Ошибка создания файла для {employee.full_name}: {e}")
                         progress.processed_files += 1
                         if file_progress_callback:
                             file_progress_callback(emp_idx + 1, len(dept_employees), f"Ошибка: {employee.full_name}")
                 
-                # Логируем результат по отделу
-                operation_log.add_entry("INFO", f"Отдел {dept_name}: создано {success_count - (dept_idx * len(dept_employees) if dept_idx > 0 else 0)}, пропущено файлов")
+                # ИСПРАВЛЕНИЕ: Правильный подсчет по отделу
+                if dept_success_count > 0 or dept_skipped_count > 0 or dept_error_count > 0:
+                    operation_log.add_entry("INFO", f"Отдел {dept_name}: создано {dept_success_count}, пропущено {dept_skipped_count}")
                 
                 # Завершаем обработку отдела
                 progress.processed_blocks = dept_idx + 1
@@ -189,11 +203,11 @@ class VacationProcessor:
                 progress_callback(progress)
             
             # Проверяем результат
-            if error_count > 0:
-                operation_log.add_entry("ERROR", f"Обработка завершена с ошибками: успешно {success_count}, ошибок {error_count}, пропущено {skipped_count}")
+            if total_error_count > 0:
+                operation_log.add_entry("ERROR", f"Обработка завершена с ошибками: успешно {total_success_count}, ошибок {total_error_count}, пропущено {total_skipped_count}")
                 operation_log.finish(ProcessingStatus.ERROR)
             else:
-                operation_log.add_entry("INFO", f"Создано файлов сотрудников: {success_count}, пропущено: {skipped_count} из {total_employees}")
+                operation_log.add_entry("INFO", f"Создано файлов сотрудников: {total_success_count}, пропущено: {total_skipped_count} из {total_employees}")
                 operation_log.add_entry("INFO", f"Время выполнения: {duration.total_seconds():.1f} сек")
                 operation_log.finish(ProcessingStatus.SUCCESS)
             
@@ -206,6 +220,21 @@ class VacationProcessor:
             operation_log.finish(ProcessingStatus.ERROR)
             
             return operation_log
+        
+    def _clean_filename_for_exe(self, filename: str) -> str:
+        """Очищает имя файла для exe от недопустимых символов"""
+        if not filename:
+            return "unnamed"
+        
+        # Заменяем недопустимые символы
+        clean_name = re.sub(r'[\\/:*?"<>|]', '_', filename)
+        clean_name = clean_name.strip('. ')
+        
+        # Ограничиваем длину
+        if len(clean_name) > 80:
+            clean_name = clean_name[:80]
+        
+        return clean_name or "unnamed"
 
     def scan_target_directory(self, target_directory: str) -> Dict[str, int]:
         """
@@ -316,6 +345,7 @@ class VacationProcessor:
                     
                     if success:
                         success_count += 1
+                        # ИСПРАВЛЕНИЕ: Убираем уровень success для ИТОГ сообщений - просто INFO
                         operation_log.add_entry("INFO", f"Создан отчет: {dept_name}")
                     else:
                         error_count += 1
@@ -387,42 +417,58 @@ class VacationProcessor:
             if progress_callback:
                 progress_callback(progress)
             
-            # Проверяем наличие отчетов по блокам и собираем данные
-            block_data = []
-            missing_reports = []
+            # 1. ПРЕДВАРИТЕЛЬНАЯ ПРОВЕРКА - все папки должны содержать отчеты
+            progress.current_operation = "Проверка наличия отчетов по блокам"
+            if progress_callback:
+                progress_callback(progress)
             
-            for i, dept_info in enumerate(selected_departments):
+            missing_reports = []
+            multiple_reports_info = []
+            
+            for dept_info in selected_departments:
                 dept_name = dept_info['name']
                 dept_path = Path(dept_info['path'])
                 
-                progress.current_operation = f"Проверка отчета: {dept_name}"
-                progress.current_block = dept_name
-                progress.processed_blocks = i
-                progress.processed_files = i
-                if progress_callback:
-                    progress_callback(progress)
-                
-                # Ищем последний отчет по блоку
-                block_report_path = self._find_latest_block_report(str(dept_path), dept_name)
-                
-                if block_report_path:
-                    # Читаем данные из отчета
-                    block_info = self.excel_handler.read_block_report_data(block_report_path)
-                    if block_info:
-                        block_data.append(block_info)
-                        operation_log.add_entry("INFO", f"Найден отчет для {dept_name}")
-                    else:
-                        missing_reports.append(dept_name)
-                        operation_log.add_entry("ERROR", f"Ошибка чтения отчета для {dept_name}")
-                else:
+                if not dept_path.exists():
                     missing_reports.append(dept_name)
-                    operation_log.add_entry("ERROR", f"Отчет по блоку не найден для {dept_name}")
-                    self.logger.error(f"Отчет по блоку не найден для подразделения: {dept_name}")
+                    continue
+                    
+                # Ищем отчеты в папке
+                report_files = []
+                for file_path in dept_path.iterdir():
+                    if file_path.is_file() and file_path.suffix.lower() == '.xlsx':
+                        filename = file_path.name
+                        if (filename.startswith("Отчет по блоку") or 
+                            filename.startswith("отчет по блоку") or
+                            "отчет" in filename.lower()):
+                            report_files.append(file_path)
                 
-                # ИСПРАВЛЕНИЕ: Эмуляция работы с блоком (~2 секунды)
-                time.sleep(2.0)
+                if not report_files:
+                    missing_reports.append(dept_name)
+                elif len(report_files) > 1:
+                    # Находим самый новый отчет
+                    latest_file = max(report_files, key=lambda f: f.stat().st_mtime)
+                    
+                    # Извлекаем дату из названия файла
+                    date_match = re.search(r'(\d{8}_\d{6})', latest_file.name)
+                    if date_match:
+                        date_str = date_match.group(1)
+                        try:
+                            parsed_date = datetime.strptime(date_str, "%Y%m%d_%H%M%S")
+                            date_display = parsed_date.strftime("%d.%m.%Y %H:%M")
+                        except ValueError:
+                            date_display = date_str
+                    else:
+                        date_display = "неизвестная дата"
+                    
+                    multiple_reports_info.append({
+                        'dept_name': dept_name,
+                        'count': len(report_files),
+                        'selected_file': latest_file.name,
+                        'date_display': date_display
+                    })
             
-            # Если есть отсутствующие отчеты - прерываем выполнение
+            # Если есть отсутствующие отчеты - прерываем
             if missing_reports:
                 missing_deps_str = ", ".join(missing_reports)
                 error_msg = f"Не найдены отчеты по блокам для подразделений: {missing_deps_str}"
@@ -430,10 +476,102 @@ class VacationProcessor:
                 operation_log.finish(ProcessingStatus.ERROR)
                 return operation_log
             
-            # Создаем общий отчет
-            progress.current_operation = "Создание общего отчета"
-            progress.processed_files = len(selected_departments)
+            # Логируем информацию о множественных отчетах
+            for info in multiple_reports_info:
+                log_msg = f"В отделе '{info['dept_name']}' найдено {info['count']} отчетов по блоку, будет использован отчет '{info['selected_file']}', так как в его названии самая актуальная дата ({info['date_display']})"
+                operation_log.add_entry("INFO", log_msg)
+            
+            # 2. РАСКИДЫВАНИЕ create_report.exe ПО ПАПКАМ
+            progress.current_operation = "Раскидывание скриптов по отделам"
+            if progress_callback:
+                progress_callback(progress)
+            
+            # Ищем create_report.exe в папке приложения
+            exe_source_path = None
+            possible_paths = [
+                Path("create_report.exe"),
+                Path("dist/create_report.exe"),
+                Path("build/create_report.exe"),
+                Path("release/create_report.exe")
+            ]
+            
+            for path in possible_paths:
+                if path.exists():
+                    exe_source_path = path
+                    break
+            
+            if not exe_source_path:
+                error_msg = "Файл create_report.exe не найден для раскидывания по отделам"
+                operation_log.add_entry("ERROR", error_msg)
+                operation_log.finish(ProcessingStatus.ERROR)
+                return operation_log
+            
+            # Раскидываем exe по папкам
+            for dept_info in selected_departments:
+                dept_name = dept_info['name']
+                dept_path = Path(dept_info['path'])
+                
+                if dept_path.exists():
+                    clean_dept_name = self._clean_filename_for_exe(dept_name)
+                    target_filename = f"Скрипт для сборки отчета по блоку '{clean_dept_name}'.exe"
+                    target_path = dept_path / target_filename
+                    
+                    try:
+                        shutil.copy2(exe_source_path, target_path)
+                        operation_log.add_entry("INFO", f"Скрипт скопирован в {dept_name}")
+                    except Exception as e:
+                        operation_log.add_entry("ERROR", f"Ошибка копирования скрипта в {dept_name}: {e}")
+            
+            # 3. СБОР ДАННЫХ ИЗ ОТЧЕТОВ
+            progress.current_operation = "Сбор данных из отчетов по блокам"
+            if progress_callback:
+                progress_callback(progress)
+            
+            block_data = []
+            import random
+            
+            for i, dept_info in enumerate(selected_departments):
+                dept_name = dept_info['name']
+                dept_path = Path(dept_info['path'])
+                
+                # Генерируем случайное время для этого блока (1.5-3 сек)
+                block_processing_time = random.uniform(1.5, 3.0)
+                block_start_time = time.time()
+                
+                progress.current_operation = f"Обработка отчета: {dept_name}"
+                progress.current_block = dept_name
+                progress.processed_blocks = i
+                progress.processed_files = i
+                if progress_callback:
+                    progress_callback(progress)
+                
+                # Ищем отчет (уже проверили что он есть)
+                block_report_path = self._find_latest_block_report(str(dept_path), dept_name)
+                
+                if block_report_path:
+                    # Читаем данные из отчета
+                    block_info = self.excel_handler.read_block_report_data(block_report_path)
+                    if block_info:
+                        block_data.append(block_info)
+                        operation_log.add_entry("INFO", f"Данные собраны из отчета для {dept_name}")
+                    else:
+                        operation_log.add_entry("ERROR", f"Ошибка чтения данных из отчета для {dept_name}")
+                
+                # Эмуляция обработки с прогресс-баром
+                while time.time() - block_start_time < block_processing_time:
+                    time.sleep(0.1)
+                    # Прогресс внутри блока обновляется в reports_window.py
+                    if progress_callback:
+                        progress_callback(progress)
+            
+            # Завершаем обработку блоков
             progress.processed_blocks = len(selected_departments)
+            progress.processed_files = len(selected_departments)
+            if progress_callback:
+                progress_callback(progress)
+            
+            # 4. СОЗДАНИЕ ОБЩЕГО ОТЧЕТА
+            progress.current_operation = "Создание файла общего отчета"
             if progress_callback:
                 progress_callback(progress)
             

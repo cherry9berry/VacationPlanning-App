@@ -625,3 +625,6 @@ class ExcelHandler:
         
         clean_name = re.sub(r'[\\/:*?"<>|]', '_', filename).strip()
         return clean_name[:100] if len(clean_name) > 100 else clean_name or "unnamed"
+    
+
+    

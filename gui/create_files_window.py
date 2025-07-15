@@ -690,7 +690,7 @@ class CreateFilesWindow:
                 )
         
         self.window.after(0, update_ui)
-    
+
     def on_processing_complete(self, operation_log):
         """Обработчик завершения создания файлов"""
         self.is_processing = False
@@ -707,11 +707,9 @@ class CreateFilesWindow:
             # Добавляем информацию о результатах операции
             for entry in operation_log.entries:
                 if entry.level == "INFO":
-                    if "Создано:" in entry.message or "создано" in entry.message.lower():
-                        message = entry.message
-                        if "из" in message and "сотрудников" in message:
-                            message = message.replace("сотрудников", "сотр.")
-                        self.add_info_to_existing(f"ИТОГ: {message}", "success")
+                    # ИСПРАВЛЕНИЕ: Убираем зеленое выделение для ИТОГ сообщений по отделам
+                    if ("Отдел" in entry.message and "создано" in entry.message) or entry.message.startswith("Создано файлов"):
+                        self.add_info_to_existing(f"ИТОГ: {entry.message}")  # Обычный текст
                     else:
                         self.add_info_to_existing(f"  • {entry.message}")
             
@@ -736,7 +734,6 @@ class CreateFilesWindow:
             
             # Показываем messagebox с ошибкой
             messagebox.showerror("Ошибка создания файлов", "Создание файлов завершено с ошибками. См. подробности в окне.")
-
 
     def on_processing_error(self, error_message):
         """Обработчик ошибки создания файлов"""

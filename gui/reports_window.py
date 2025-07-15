@@ -18,6 +18,7 @@ from core.processor import VacationProcessor
 from models import ProcessingProgress, ProcessingStatus
 
 
+
 class ReportTab:
     """Базовый класс для вкладок отчетов"""
     
@@ -300,7 +301,7 @@ class ReportTab:
         # Создаем модальное окно
         dialog = tk.Toplevel(parent_window)
         dialog.title("Выбор подразделений")
-        dialog.geometry("600x500")
+        dialog.geometry("650x550")
         dialog.resizable(True, True)
         dialog.transient(parent_window)
         dialog.grab_set()
@@ -313,8 +314,8 @@ class ReportTab:
         
         result = []
         
-        # Основной фрейм
-        main_frame = ttk.Frame(dialog, padding="15")
+        # Основной фрейм с отступами
+        main_frame = ttk.Frame(dialog, padding="20")
         main_frame.pack(fill=tk.BOTH, expand=True)
         
         # Заголовок
@@ -333,19 +334,28 @@ class ReportTab:
             font=("TkDefaultFont", 9)
         ).pack(anchor=tk.W, pady=(5, 0))
         
-        # Область с чекбоксами
-        list_frame = ttk.LabelFrame(main_frame, text="Подразделения", padding="10")
+        # ИСПРАВЛЕНИЕ: Область с чекбоксами с правильной структурой
+        list_frame = ttk.LabelFrame(main_frame, text="Подразделения", padding="15")
         list_frame.pack(fill=tk.BOTH, expand=True, pady=(0, 15))
         
-        # Canvas для скроллинга
-        canvas = tk.Canvas(list_frame)
-        scrollbar = ttk.Scrollbar(list_frame, orient="vertical", command=canvas.yview)
-        scrollable_frame = ttk.Frame(canvas)
+        # Контейнер для Canvas и Scrollbar
+        canvas_container = ttk.Frame(list_frame)
+        canvas_container.pack(fill=tk.BOTH, expand=True)
         
+        # Canvas для скроллинга
+        canvas = tk.Canvas(canvas_container, highlightthickness=0)
+        scrollbar = ttk.Scrollbar(canvas_container, orient="vertical", command=canvas.yview)
+        
+        # ИСПРАВЛЕНИЕ: Создаем scrollable_frame внутри canvas с отступами
+        scrollable_frame = ttk.Frame(canvas)
         scrollable_frame.bind(
             "<Configure>",
             lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
         )
+        
+        # ИСПРАВЛЕНИЕ: Правильное размещение элементов
+        canvas.pack(side="left", fill="both", expand=True, padx=(0, 5))
+        scrollbar.pack(side="right", fill="y")
         
         canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
         canvas.configure(yscrollcommand=scrollbar.set)
@@ -353,24 +363,24 @@ class ReportTab:
         # Переменные для чекбоксов
         dept_vars = {}
         
-        # Создаем чекбоксы
+        # Создаем чекбоксы с правильными отступами
         checkboxes = []
         for i, dept in enumerate(departments):
             var = tk.BooleanVar()
             var.set(True)  # По умолчанию все выбраны
             dept_vars[i] = var
             
-            # Фрейм для чекбокса
+            # ИСПРАВЛЕНИЕ: Фрейм для чекбокса с отступами
             cb_frame = ttk.Frame(scrollable_frame)
-            cb_frame.pack(fill=tk.X, pady=2)
+            cb_frame.pack(fill=tk.X, pady=3, padx=10)
             
             checkbox = ttk.Checkbutton(
                 cb_frame,
                 text=f"{dept['name']}",
                 variable=var,
-                width=40
+                width=50
             )
-            checkbox.pack(side=tk.LEFT)
+            checkbox.pack(side=tk.LEFT, anchor=tk.W)
             checkboxes.append(checkbox)
             
             # Информация о файлах
@@ -380,10 +390,20 @@ class ReportTab:
                 font=("TkDefaultFont", 8),
                 foreground="gray"
             )
-            info_label.pack(side=tk.RIGHT)
+            info_label.pack(side=tk.RIGHT, anchor=tk.E, padx=(10, 0))
         
-        canvas.pack(side="left", fill="both", expand=True)
-        scrollbar.pack(side="right", fill="y")
+        # ИСПРАВЛЕНИЕ: Обработка прокрутки колесиком мыши
+        def _on_mousewheel(event):
+            canvas.yview_scroll(int(-1*(event.delta/120)), "units")
+        
+        def _bind_to_mousewheel(event):
+            canvas.bind_all("<MouseWheel>", _on_mousewheel)
+        
+        def _unbind_from_mousewheel(event):
+            canvas.unbind_all("<MouseWheel>")
+        
+        canvas.bind('<Enter>', _bind_to_mousewheel)
+        canvas.bind('<Leave>', _unbind_from_mousewheel)
         
         # Кнопки управления выбором
         selection_frame = ttk.Frame(main_frame)
@@ -589,45 +609,6 @@ class ReportTab:
             except tk.TclError:
                 return
             
-            # Общий процент
-            if self.tab_type == "departments":
-                if progress.total_files > 0:
-                    overall_percent = (progress.processed_files / progress.total_files) * 100
-                    self.overall_progress_label.config(text=f"Общий прогресс: {overall_percent:.1f}%")
-            else:
-                if progress.total_blocks > 0:
-                    overall_percent = (progress.processed_blocks / progress.total_blocks) * 100
-                    self.overall_progress_label.config(text=f"Общий прогресс: {overall_percent:.1f}%")
-            
-            # Время
-            elapsed = (datetime.now() - progress.start_time).total_seconds() if progress.start_time else 0
-            
-            if self.tab_type == "departments":
-                if progress.processed_files > 0 and progress.total_files > 0:
-                    speed = progress.processed_files / elapsed if elapsed > 0 else 0
-                    remaining_files = progress.total_files - progress.processed_files
-                    remaining_time = remaining_files / speed if speed > 0 else 0
-                    self.time_label.config(text=f"Прошло: {elapsed:.0f} сек, Осталось: {remaining_time:.0f} сек")
-                else:
-                    self.time_label.config(text=f"Прошло: {elapsed:.0f} сек")
-            else:
-                if progress.processed_blocks > 0 and progress.total_blocks > 0:
-                    speed = progress.processed_blocks / elapsed if elapsed > 0 else 0
-                    remaining_blocks = progress.total_blocks - progress.processed_blocks
-                    remaining_time = remaining_blocks / speed if speed > 0 else 0
-                    self.time_label.config(text=f"Прошло: {elapsed:.0f} сек, Осталось: {remaining_time:.0f} сек")
-                else:
-                    self.time_label.config(text=f"Прошло: {elapsed:.0f} сек")
-            
-            # Верхний прогресс-бар (отделы)
-            if progress.total_blocks > 0:
-                dept_percent = (progress.processed_blocks / progress.total_blocks) * 100
-                self.dept_progress_bar['value'] = dept_percent
-                self.dept_detail_label.config(
-                    text=f"Отдел {progress.processed_blocks}/{progress.total_blocks}: {progress.current_block or 'Готовится...'}"
-                )
-            
-            # ИСПРАВЛЕННЫЙ НИЖНИЙ ПРОГРЕСС-БАР
             if self.tab_type == "departments":
                 # ДЛЯ ОТЧЕТОВ ПО ПОДРАЗДЕЛЕНИЯМ - реальные файлы в текущем отделе
                 if hasattr(self, 'selected_departments') and self.selected_departments:
@@ -663,32 +644,37 @@ class ReportTab:
                     self.files_progress_bar['value'] = 0
                     self.files_detail_label.config(text="Подготовка...")
             else:
-                # ДЛЯ ОБЩЕГО ОТЧЕТА - эмуляция обработки каждого отдела
-                if progress.total_blocks > 0:
-                    avg_time_per_block = 2.0  # секунд на блок (как в processor.py)
-                    
-                    # ИСПРАВЛЕНИЕ: Определяем текущий блок корректно
+                # ДЛЯ ОБЩЕГО ОТЧЕТА - простая эмуляция на случайное время 1.5-3 сек на блок
+                if hasattr(self, 'selected_departments') and self.selected_departments:
                     current_block_index = progress.processed_blocks
                     
-                    if current_block_index < progress.total_blocks:
-                        # Обрабатываем текущий блок
-                        time_spent_on_completed_blocks = current_block_index * avg_time_per_block
-                        time_in_current_block = max(0, elapsed - time_spent_on_completed_blocks)
+                    if current_block_index < len(self.selected_departments):
+                        dept_name = self.selected_departments[current_block_index]['name']
+                        
+                        # ИСПРАВЛЕНИЕ: Инициализируем переменные только один раз для всего процесса
+                        if not hasattr(self, '_block_timings'):
+                            self._block_timings = {}
+                            import random
+                            
+                            # Предварительно генерируем время для каждого блока
+                            for i in range(len(self.selected_departments)):
+                                self._block_timings[i] = {
+                                    'duration': random.uniform(1.5, 3.0),
+                                    'start_time': None
+                                }
+                        
+                        # Устанавливаем время начала для текущего блока если еще не установлено
+                        if self._block_timings[current_block_index]['start_time'] is None:
+                            self._block_timings[current_block_index]['start_time'] = time.time()
+                        
+                        block_start_time = self._block_timings[current_block_index]['start_time']
+                        block_duration = self._block_timings[current_block_index]['duration']
+                        time_in_block = time.time() - block_start_time
                         
                         # Прогресс в текущем блоке (от 0 до 100%)
-                        block_progress = min(100, (time_in_current_block / avg_time_per_block) * 100)
+                        block_progress = min(100, (time_in_block / block_duration) * 100)
                         
                         self.files_progress_bar['value'] = block_progress
-                        
-                        # Название текущего блока
-                        if hasattr(self, 'selected_departments') and self.selected_departments:
-                            if current_block_index < len(self.selected_departments):
-                                dept_name = self.selected_departments[current_block_index]['name']
-                            else:
-                                dept_name = progress.current_block or f"Отдел {current_block_index + 1}"
-                        else:
-                            dept_name = progress.current_block or f"Отдел {current_block_index + 1}"
-                        
                         self.files_detail_label.config(text=f"Обработка: {dept_name} ({block_progress:.0f}%)")
                     else:
                         # Все блоки завершены
@@ -736,7 +722,11 @@ class ReportTab:
             
             for entry in operation_log.entries:
                 if entry.level == "INFO":
-                    self.add_info_to_existing(f"ИТОГ: {entry.message}", "success")
+                    # ИСПРАВЛЕНИЕ: Убираем зеленое выделение для ИТОГ сообщений
+                    if entry.message.startswith("Создан отчет:"):
+                        self.add_info_to_existing(f"ИТОГ: {entry.message}")  # Обычный текст
+                    else:
+                        self.add_info_to_existing(f"ИТОГ: {entry.message}", "success")  # Зеленое для остальных
         else:
             self.add_info_to_existing("")
             self.add_info_to_existing("ОШИБКА СОЗДАНИЯ ОТЧЕТОВ!", "error")
@@ -751,7 +741,6 @@ class ReportTab:
         
         # ИСПРАВЛЕНИЕ: ВСЕГДА показываем "Закрыть" после завершения
         self.action_btn.config(text="Закрыть", command=self.close_window, state=tk.NORMAL)
-
 
     def on_processing_error(self, error_message):
         """Ошибка обработки"""

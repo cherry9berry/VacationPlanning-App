@@ -12,7 +12,7 @@ sandbox/
 backLog_aka_toDo.md
 # C extensions
 *.so
-
+*.txt
 # Distribution / packaging
 .Python
 build/
