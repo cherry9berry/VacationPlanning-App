@@ -143,7 +143,7 @@ class VacationProcessor:
                     
                     # Обрабатываем сотрудников в текущем отделе
                     for emp_idx, employee in enumerate(dept_employees):
-                        print(f"=== DEBUG PROCESSOR: Обрабатываем сотрудника {emp_idx+1}/{len(dept_employees)}: {employee.full_name} ===")
+                        print(f"=== DEBUG PROCESSOR: Обрабатываем сотрудника {emp_idx+1}/{len(dept_employees)}: {employee['ФИО работника']} ===")
                         
                         try:
                             # Генерируем имя файла
@@ -157,7 +157,7 @@ class VacationProcessor:
                                 print(f"=== DEBUG PROCESSOR: Файл существует, пропускаем ===")
                                 dept_skipped_count += 1
                                 total_skipped_count += 1
-                                message = f"Пропущен (уже существует): {employee.full_name}"
+                                message = f"Пропущен (уже существует): {employee['ФИО работника']}"
                             else:
                                 print(f"=== DEBUG PROCESSOR: Создаем файл сотрудника ===")
                                 # Создаем файл сотрудника
@@ -167,12 +167,12 @@ class VacationProcessor:
                                     print(f"=== DEBUG PROCESSOR: Файл создан успешно ===")
                                     dept_success_count += 1
                                     total_success_count += 1
-                                    message = f"Создан: {employee.full_name}"
+                                    message = f"Создан: {employee['ФИО работника']}"
                                 else:
                                     print(f"=== DEBUG PROCESSOR: ОШИБКА создания файла ===")
                                     dept_error_count += 1
                                     total_error_count += 1
-                                    message = f"Ошибка создания: {employee.full_name}"
+                                    message = f"Ошибка создания: {employee['ФИО работника']}"
                             
                             progress.processed_files += 1
                             
@@ -189,14 +189,14 @@ class VacationProcessor:
                             time.sleep(0.05)
                             
                         except Exception as e:
-                            print(f"=== DEBUG PROCESSOR: ИСКЛЮЧЕНИЕ при обработке сотрудника {employee.full_name}: {e} ===")
+                            print(f"=== DEBUG PROCESSOR: ИСКЛЮЧЕНИЕ при обработке сотрудника {employee['ФИО работника']}: {e} ===")
                             dept_error_count += 1
                             total_error_count += 1
-                            self.logger.error(f"Ошибка создания файла для {employee.full_name}: {e}")
+                            self.logger.error(f"Ошибка создания файла для {employee['ФИО работника']}: {e}")
                             progress.processed_files += 1
                             
                             if file_progress_callback:
-                                file_progress_callback(emp_idx + 1, len(dept_employees), f"Ошибка: {employee.full_name}")
+                                file_progress_callback(emp_idx + 1, len(dept_employees), f"Ошибка: {employee['ФИО работника']}")
                             
                             if progress_callback:
                                 progress_callback(progress)

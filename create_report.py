@@ -222,18 +222,19 @@ class BlockReportCreator:
                 position = self.get_cell_value(worksheet, f"{emp_columns['position']}{row}")
                 
                 if tab_number and full_name:
-                    employee.tab_number = str(tab_number).strip()
-                    employee.full_name = str(full_name).strip()
-                    if position:
-                        employee.position = str(position).strip()
+                    # Удаляем/комментируем присваивания для Employee-объектов, так как теперь используется dict
+                    # employee.tab_number = str(tab_number).strip()
+                    # employee.full_name = str(full_name).strip()
+                    # employee.position = str(position).strip()
                     break
             
             # Читаем подразделения из шапки файла
             dept_cells = file_structure["department_cells"]
-            employee.department1 = str(self.get_cell_value(worksheet, dept_cells["department1"]) or "").strip()
-            employee.department2 = str(self.get_cell_value(worksheet, dept_cells["department2"]) or "").strip()
-            employee.department3 = str(self.get_cell_value(worksheet, dept_cells["department3"]) or "").strip()
-            employee.department4 = str(self.get_cell_value(worksheet, dept_cells["department4"]) or "").strip()
+            # Исправить обращения к employee.department1 на employee['Подразделение 1']
+            employee['Подразделение 1'] = str(self.get_cell_value(worksheet, dept_cells["department1"]) or "").strip()
+            employee['Подразделение 2'] = str(self.get_cell_value(worksheet, dept_cells["department2"]) or "").strip()
+            employee['Подразделение 3'] = str(self.get_cell_value(worksheet, dept_cells["department3"]) or "").strip()
+            employee['Подразделение 4'] = str(self.get_cell_value(worksheet, dept_cells["department4"]) or "").strip()
             
             # Читаем периоды отпусков
             vacation_columns = file_structure["vacation_columns"]
@@ -438,13 +439,13 @@ class BlockReportCreator:
             emp = vacation_info.employee
             
             worksheet[f"A{row}"] = i + 1  # №
-            worksheet[f"B{row}"] = emp.full_name  # ФИО
-            worksheet[f"C{row}"] = emp.tab_number  # Таб. Номер
-            worksheet[f"D{row}"] = emp.position  # Должность
-            worksheet[f"E{row}"] = emp.department1  # Подразделение 1
-            worksheet[f"F{row}"] = emp.department2  # Подразделение 2
-            worksheet[f"G{row}"] = emp.department3  # Подразделение 3
-            worksheet[f"H{row}"] = emp.department4  # Подразделение 4
+            worksheet[f"B{row}"] = emp['ФИО работника']  # ФИО
+            worksheet[f"C{row}"] = emp['Табельный номер']  # Таб. Номер
+            worksheet[f"D{row}"] = emp['Должность']  # Должность
+            worksheet[f"E{row}"] = emp['Подразделение 1']  # Подразделение 1
+            worksheet[f"F{row}"] = emp['Подразделение 2']  # Подразделение 2
+            worksheet[f"G{row}"] = emp['Подразделение 3']  # Подразделение 3
+            worksheet[f"H{row}"] = emp['Подразделение 4']  # Подразделение 4
             
             # Статус планирования
             if vacation_info.status == "Форма заполнена корректно":
@@ -536,9 +537,9 @@ class BlockReportCreator:
             emp = record['employee']
             
             worksheet[f"A{current_row}"] = record_idx + 1  # № п/п
-            worksheet[f"B{current_row}"] = emp.tab_number  # Табельный номер
-            worksheet[f"C{current_row}"] = emp.full_name  # ФИО
-            worksheet[f"D{current_row}"] = emp.position  # Должность
+            worksheet[f"B{current_row}"] = emp['Табельный номер']  # Табельный номер
+            worksheet[f"C{current_row}"] = emp['ФИО работника']  # ФИО
+            worksheet[f"D{current_row}"] = emp['Должность']  # Должность
             
             if record['start_date']:
                 worksheet[f"E{current_row}"] = record['start_date'].strftime('%d.%m.%Y')  # Дата начала
@@ -617,7 +618,8 @@ def main():
             print(f"   • {invalid_file}")
     
     # 5. Определяем название блока из первого сотрудника
-    block_name = vacation_infos[0].employee.department1 or "Неизвестное подразделение"
+    # Исправить обращения к employee.department1 на employee['Подразделение 1']
+    block_name = vacation_infos[0]['Подразделение 1'] if vacation_infos[0].get('Подразделение 1') else "Неизвестное подразделение"
     print(f"5. Название блока: {block_name}")
     
     # 6. Создаем отчет

@@ -46,6 +46,10 @@ class CreateFilesWindow:
         
         # Создаем окно
         self.window = None
+        self.created_count_label = tk.Label(self.window, text="Создано: 0")
+        self.created_count_label.grid(row=0, column=0, sticky='w')
+        # Инициализация переменной прогресса для совместимости с on_processing_complete
+        self.progress_var = tk.IntVar(value=0)
         self.setup_ui()
 
     def setup_ui(self):
@@ -324,9 +328,9 @@ class CreateFilesWindow:
             # Получаем ожидаемые отделы из валидации
             expected_departments = set()
             for emp in self._employees:
-                if emp.department1:
-                    clean_dept = self._clean_directory_name(emp.department1)
-                    expected_departments.add((emp.department1, clean_dept))
+                if emp['Подразделение 1']:
+                    clean_dept = self._clean_directory_name(emp['Подразделение 1'])
+                    expected_departments.add((emp['Подразделение 1'], clean_dept))
             
             existing_departments = []
             new_departments = []
@@ -357,7 +361,7 @@ class CreateFilesWindow:
                             break
             
             # Определяем новые отделы
-            all_departments_from_file = set(emp.department1 for emp in self._employees if emp.department1)
+            all_departments_from_file = set(emp['Подразделение 1'] for emp in self._employees if emp['Подразделение 1'])
             new_departments = list(all_departments_from_file - set(existing_departments))
             
             # Подсчитываем новых сотрудников
@@ -406,7 +410,7 @@ class CreateFilesWindow:
                 self.skip_employees_count = 0
                 
                 # Все отделы новые
-                all_departments = list(set(emp.department1 for emp in self._employees if emp.department1))
+                all_departments = list(set(emp['Подразделение 1'] for emp in self._employees if emp['Подразделение 1']))
                 new_list = ", ".join(all_departments)
                 
                 self.add_info("В папке нет подразделений из вашего файла - будет создана новая структура")
@@ -481,7 +485,7 @@ class CreateFilesWindow:
                 
                 # ИСПРАВЛЕНО: Используем правильную статистику
                 total_after_filter = len(employees)  # Количество после фильтрации
-                unique_tab_numbers = len(set(emp.tab_number for emp in employees))
+                unique_tab_numbers = len(set(emp['Табельный номер'] for emp in employees))
                 warnings_count = len(self.validation_result.warnings)
                 
                 self.add_info(f"  • Всего сотрудников после фильтрации: {total_after_filter}")
@@ -525,7 +529,7 @@ class CreateFilesWindow:
     def format_validation_stats(self, validation_result, employees):
         """ИСПРАВЛЕНО: Форматирует статистику валидации с учетом фильтрации"""
         total_after_filter = len(employees)
-        unique_tab_numbers = len(set(emp.tab_number for emp in employees))
+        unique_tab_numbers = len(set(emp['Табельный номер'] for emp in employees))
         warnings_count = len(validation_result.warnings)
         
         stats = f"• Всего сотрудников после фильтрации: {total_after_filter}\n"
@@ -740,45 +744,103 @@ class CreateFilesWindow:
             except tk.TclError:
                 pass
 
-    def on_processing_complete(self, operation_log):
-            """ИСПРАВЛЕНО: Обработчик завершения создания файлов"""
-            try:
-                if not self.window.winfo_exists():
-                    return
-            except tk.TclError:
+    def on_processing_complete(self, result):
+        """Обработчик завершения создания файлов"""
+        print(f"=== DEBUG GUI: on_processing_complete вызван с результатом: {result} ===")
+        
+        try:
+            if not self.window or not self.window.winfo_exists():
+                print(f"=== DEBUG GUI: Окно не существует, выходим ===")
                 return
-                
+            
+            # Останавливаем прогресс бар
+            self.progress_var.set(100)
+            
+            # Результат может быть словарем или объектом
+            if isinstance(result, dict):
+                created_count = result.get('created', 0)
+                skipped_count = result.get('skipped', 0)
+                error_count = result.get('errors', 0)
+                processing_time = result.get('processing_time', 0)
+                log_entries = result.get('log_entries', [])
+            else:
+                # Если результат - объект с атрибутами
+                created_count = getattr(result, 'created', 0)
+                skipped_count = getattr(result, 'skipped', 0)
+                error_count = getattr(result, 'errors', 0)
+                processing_time = getattr(result, 'processing_time', 0)
+                log_entries = getattr(result, 'log_entries', [])
+            
+            # Обновляем счетчики
+            self.created_count_label.config(text=f"Создано: {created_count}")
+            self.skipped_count_label.config(text=f"Пропущено: {skipped_count}")
+            self.error_count_label.config(text=f"Ошибок: {error_count}")
+            
+            # Показываем итоговое сообщение
+            if error_count > 0:
+                status_message = f"Завершено с ошибками: {created_count} создано, {skipped_count} пропущено, {error_count} ошибок"
+                self.add_info_to_existing("=" * 50)
+                self.add_info_to_existing("СОЗДАНИЕ ФАЙЛОВ ЗАВЕРШЕНО С ОШИБКАМИ!")
+                self.add_info_to_existing(f"Время выполнения: {processing_time:.1f} сек")
+                self.add_info_to_existing("=" * 50)
+            else:
+                status_message = f"Успешно завершено: {created_count} создано, {skipped_count} пропущено"
+                self.add_info_to_existing("=" * 50)
+                self.add_info_to_existing("СОЗДАНИЕ ФАЙЛОВ УСПЕШНО ЗАВЕРШЕНО!")
+                self.add_info_to_existing(f"Время выполнения: {processing_time:.1f} сек")
+                self.add_info_to_existing("=" * 50)
+            
+            # Обрабатываем лог записи
+            if log_entries:
+                print(f"=== DEBUG GUI: Обрабатываем {len(log_entries)} лог записей ===")
+                for entry in log_entries:
+                    if isinstance(entry, dict):
+                        # Если entry - словарь
+                        level = entry.get('level', 'INFO')
+                        message = entry.get('message', '')
+                        if level == "ERROR":
+                            self.add_info_to_existing(f"ОШИБКА: {message}")
+                        elif level == "WARNING":
+                            self.add_info_to_existing(f"ПРЕДУПРЕЖДЕНИЕ: {message}")
+                        else:
+                            self.add_info_to_existing(message)
+                    else:
+                        # Если entry - объект с атрибутами
+                        level = getattr(entry, 'level', 'INFO')
+                        message = getattr(entry, 'message', str(entry))
+                        if level == "ERROR":
+                            self.add_info_to_existing(f"ОШИБКА: {message}")
+                        elif level == "WARNING":
+                            self.add_info_to_existing(f"ПРЕДУПРЕЖДЕНИЕ: {message}")
+                        else:
+                            self.add_info_to_existing(message)
+            
+            # Обновляем статус
+            self.status_label.config(text=status_message)
+            
+            # Включаем кнопки
+            self.create_button.config(state=tk.NORMAL)
+            self.back_button.config(state=tk.NORMAL)
+            
+            # Устанавливаем флаг завершения
             self.is_processing = False
             
-            if operation_log.status == ProcessingStatus.SUCCESS:
-                # Добавляем результат в существующую информацию
-                self.add_info_to_existing("")
-                self.add_info_to_existing("=" * 50)
-                self.add_info_to_existing("СОЗДАНИЕ ФАЙЛОВ УСПЕШНО ЗАВЕРШЕНО!", "success")
-                if hasattr(operation_log, 'duration') and operation_log.duration:
-                    self.add_info_to_existing(f"Время выполнения: {operation_log.duration:.1f} сек")
-                self.add_info_to_existing("=" * 50)
-                self.add_info_to_existing("")
-                
-                # Добавляем информацию о результатах операции
-                for entry in operation_log.entries:
-                    if entry.level == "INFO":
-                        self.add_info_to_existing(f"  • {entry.message}")
-                
-            else:
-                self.add_info_to_existing("")
-                self.add_info_to_existing("СОЗДАНИЕ ФАЙЛОВ ЗАВЕРШЕНО С ОШИБКАМИ!", "error")
-                
-                # Показываем ошибки
-                for entry in operation_log.entries:
-                    if entry.level == "ERROR":
-                        self.add_info_to_existing(f"  • {entry.message}", "error")
+            print(f"=== DEBUG GUI: on_processing_complete завершен ===")
             
-            # Возвращаемся к отображению информации
-            self.show_info_view()
+        except Exception as e:
+            print(f"=== DEBUG GUI: Ошибка в on_processing_complete: {e} ===")
+            import traceback
+            traceback.print_exc()
             
-            # Показываем кнопку "Закрыть"
-            self.create_btn.config(text="Закрыть", command=self.on_closing, state=tk.NORMAL)
+            # Безопасное завершение
+            try:
+                self.add_info_to_existing(f"Ошибка при завершении: {e}")
+                self.status_label.config(text="Ошибка при завершении обработки")
+                self.create_button.config(state=tk.NORMAL)
+                self.back_button.config(state=tk.NORMAL)
+                self.is_processing = False
+            except:
+                pass
 
     def on_processing_error(self, error_message):
         """ИСПРАВЛЕНО: Обработчик ошибки обработки"""

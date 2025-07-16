@@ -79,8 +79,13 @@ class Validator:
             if not result.is_valid:
                 return result, employees
             
-            # Чтение данных сотрудников БЕЗ field_mapping
-            all_employees = self._read_employees(worksheet, header_row, header_map)
+            # Загружаем правила заполнения из шаблона для динамического маппинга
+            from core.excel_handler import ExcelHandler
+            excel_handler = ExcelHandler(self.config)
+            rules = excel_handler._load_filling_rules(self.config.employee_template)
+            needed_fields = list(rules.get('value', {}).values())
+            # Чтение данных сотрудников по нужным полям
+            all_employees = self._read_employees(worksheet, header_row, header_map, needed_fields)
             
             # ИСПРАВЛЕННАЯ ЛОГИКА: Валидация и фильтрация сотрудников
             employees, validation_stats = self._validate_and_filter_employees(all_employees, result)
@@ -97,7 +102,7 @@ class Validator:
         
         return result, employees
     
-    def _validate_and_filter_employees(self, all_employees: List[Employee], result: ValidationResult) -> Tuple[List[Employee], Dict]:
+    def _validate_and_filter_employees(self, all_employees: List[dict], result: ValidationResult) -> Tuple[List[Employee], Dict]:
         """
         ИСПРАВЛЕННАЯ ЛОГИКА: Валидирует сотрудников и исключает дублирующиеся табельные номера
         
@@ -111,32 +116,32 @@ class Validator:
         # Первый проход - выявляем дублирующиеся табельные номера
         for i, emp in enumerate(all_employees, 1):
             # Проверка длины строк
-            if len(emp.full_name) > 255:
+            if len(emp.get('ФИО работника', '')) > 255:
                 result.add_warning(f"Строка {i}: ФИО слишком длинное (>255 символов)")
             
-            if len(emp.department1) > 255:
+            if len(emp.get('Подразделение 1', '')) > 255:
                 result.add_warning(f"Строка {i}: Название подразделения слишком длинное")
             
             # Проверка табельного номера
-            if not emp.tab_number:
+            if not emp.get('Табельный номер'):
                 result.add_error(f"Строка {i}: Пустой табельный номер")
                 continue
             
             # Проверка формата табельного номера
-            if not re.match(r'^\d+$', emp.tab_number):
-                result.add_warning(f"Строка {i}: Табельный номер не является числом: {emp.tab_number}")
+            if not re.match(r'^\d+$', emp.get('Табельный номер')):
+                result.add_warning(f"Строка {i}: Табельный номер не является числом: {emp.get('Табельный номер')}")
             
             # Подсчет табельных номеров
-            if emp.tab_number in tab_numbers:
-                tab_numbers[emp.tab_number].append(emp)
+            if emp.get('Табельный номер') in tab_numbers:
+                tab_numbers[emp.get('Табельный номер')].append(emp)
             else:
-                tab_numbers[emp.tab_number] = [emp]
+                tab_numbers[emp.get('Табельный номер')] = [emp]
         
         # Второй проход - определяем какие табельные номера дублируются
         for tab_num, emp_list in tab_numbers.items():
             if len(emp_list) > 1:
                 # Дублирующийся табельный номер - добавляем в статистику и исключаем всех
-                names = [emp.full_name for emp in emp_list]
+                names = [emp.get('ФИО работника', '') for emp in emp_list]
                 duplicate_tab_numbers[tab_num] = names
                 result.add_warning(f"Дублирующийся табельный номер {tab_num}: {', '.join(names)}")
             else:
@@ -162,59 +167,28 @@ class Validator:
         
         return valid_employees, validation_stats
     
-    def _read_employees(self, worksheet, header_row: int, header_map: dict) -> List[Employee]:
-        """ИСПРАВЛЕНО: Читает сотрудников БЕЗ field_mapping - простая логика"""
+    def _read_employees(self, worksheet, header_row: int, header_map: dict, rules_value_fields=None) -> List[dict]:
+        """Динамически читает сотрудников по правилам rules['value'] и заголовкам исходника"""
         employees = []
-        
+        if rules_value_fields is None:
+            # Если не передали список нужных полей, работаем по старой логике
+            rules_value_fields = list(header_map.keys())
         row_num = header_row + 1
         while True:
             row_values = self._get_row_values(worksheet, row_num)
-            
             if not row_values or all(not val for val in row_values):
                 break
-            
-            employee = Employee()
-            
-            for field_name, col_idx in header_map.items():
-                if col_idx < len(row_values):
-                    value = row_values[col_idx]
-                    if value is not None:
-                        value = str(value).strip()
-                    
-                    # ИСПРАВЛЕНО: Простое сопоставление без field_mapping
-                    if field_name == "ФИО работника":
-                        employee.full_name = value or ""
-                    elif field_name == "Табельный номер":
-                        employee.tab_number = value or ""
-                    elif field_name == "Должность":
-                        employee.position = value or ""
-                    elif field_name == "Подразделение 1":
-                        employee.department1 = value or ""
-                    elif field_name == "Подразделение 2":
-                        employee.department2 = value or ""
-                    elif field_name == "Подразделение 3":
-                        employee.department3 = value or ""
-                    elif field_name == "Подразделение 4":
-                        employee.department4 = value or ""
-                    elif field_name == "Локация":
-                        employee.location = value or ""
-                    elif field_name == "Остатки отпуска":
-                        employee.vacation_remainder = value or ""
-                    elif field_name == "Дата приема":
-                        employee.hire_date = value or ""
-                    elif field_name == "Дата отсечки периода":
-                        employee.period_cutoff_date = value or ""
-                    elif field_name == "Дополнительный отпуск НРД":
-                        employee.additional_vacation_nrd = value or ""
-                    elif field_name == "Дополнительный отпуск Северный":
-                        employee.additional_vacation_north = value or ""
-            
-            # Добавляем только если есть обязательные поля
-            if employee.full_name and employee.tab_number and employee.department1:
-                employees.append(employee)
-            
+            employee_data = {}
+            for field in rules_value_fields:
+                col_idx = header_map.get(field)
+                value = row_values[col_idx] if col_idx is not None and col_idx < len(row_values) else ''
+                if value is None:
+                    value = ''
+                employee_data[field] = str(value).strip()
+            # Добавляем только если есть обязательные поля (например, ФИО работника, Табельный номер, Подразделение 1)
+            if employee_data.get('ФИО работника') and employee_data.get('Табельный номер') and employee_data.get('Подразделение 1'):
+                employees.append(employee_data)
             row_num += 1
-        
         return employees
     
     def _get_row_values(self, worksheet, row_num: int) -> List:

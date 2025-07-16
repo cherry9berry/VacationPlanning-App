@@ -72,7 +72,7 @@ class FileManager:
             for employee in employees:
                 # Используем первое непустое подразделение
                 dept_name = None
-                for dept in [employee.department1, employee.department2, employee.department3, employee.department4]:
+                for dept in [employee['Подразделение 1'], employee['Подразделение 2'], employee['Подразделение 3'], employee['Подразделение 4']]:
                     if dept and dept.strip():
                         dept_name = dept.strip()
                         break
@@ -132,8 +132,8 @@ class FileManager:
             # Собираем уникальные подразделения из файла
             dept_set = set()
             for emp in employees:
-                if emp.department1:
-                    dept_set.add(emp.department1)
+                if emp['Подразделение 1']:
+                    dept_set.add(emp['Подразделение 1'])
             
             # Проверяем существующие папки и создаем только недостающие
             output_path = Path(output_dir)
@@ -175,8 +175,8 @@ class FileManager:
             # Собираем уникальные подразделения
             dept_set = set()
             for emp in employees:
-                if emp.department1:
-                    dept_set.add(emp.department1)
+                if emp['Подразделение 1']:
+                    dept_set.add(emp['Подразделение 1'])
             
             # Создаем папки для каждого подразделения
             for dept in dept_set:
@@ -218,9 +218,9 @@ class FileManager:
         # Группируем сотрудников по отделам для прогресса
         employees_by_dept = {}
         for emp in employees:
-            if emp.department1 not in employees_by_dept:
-                employees_by_dept[emp.department1] = []
-            employees_by_dept[emp.department1].append(emp)
+            if emp['Подразделение 1'] not in employees_by_dept:
+                employees_by_dept[emp['Подразделение 1']] = []
+            employees_by_dept[emp['Подразделение 1']].append(emp)
         
         total_departments = len(employees_by_dept)
         processed_departments = 0
@@ -247,16 +247,16 @@ class FileManager:
                     # Проверяем существование файла
                     if output_path.exists():
                         skipped_count += 1
-                        message = f"Пропущен (уже существует): {employee.full_name}"
+                        message = f"Пропущен (уже существует): {employee['ФИО работника']}"
                     else:
                         # Создаем файл сотрудника
                         success = self.excel_handler.create_employee_file(employee, str(output_path))
                         
                         if success:
                             success_count += 1
-                            message = f"Создан: {employee.full_name}"
+                            message = f"Создан: {employee['ФИО работника']}"
                         else:
-                            message = f"Ошибка создания: {employee.full_name}"
+                            message = f"Ошибка создания: {employee['ФИО работника']}"
                     
                     processed_files_total += 1
                     
@@ -268,10 +268,10 @@ class FileManager:
                     time.sleep(0.05)
                     
                 except Exception as e:
-                    self.logger.error(f"Ошибка создания файла для {employee.full_name}: {e}")
+                    self.logger.error(f"Ошибка создания файла для {employee['ФИО работника']}: {e}")
                     processed_files_total += 1
                     if progress_callback:
-                        progress_callback(processed_files_total, total, f"Ошибка: {employee.full_name}")
+                        progress_callback(processed_files_total, total, f"Ошибка: {employee['ФИО работника']}")
             
             processed_departments += 1
             
@@ -307,9 +307,9 @@ class FileManager:
         # Группируем сотрудников по отделам для прогресса
         employees_by_dept = {}
         for emp in employees:
-            if emp.department1 not in employees_by_dept:
-                employees_by_dept[emp.department1] = []
-            employees_by_dept[emp.department1].append(emp)
+            if emp['Подразделение 1'] not in employees_by_dept:
+                employees_by_dept[emp['Подразделение 1']] = []
+            employees_by_dept[emp['Подразделение 1']].append(emp)
         
         total_departments = len(employees_by_dept)
         processed_departments = 0
@@ -335,16 +335,16 @@ class FileManager:
                     
                     # Проверяем существование файла
                     if output_path.exists():
-                        message = f"Пропущен (уже существует): {employee.full_name}"
+                        message = f"Пропущен (уже существует): {employee['ФИО работника']}"
                     else:
                         # Создаем файл сотрудника
                         success = self.excel_handler.create_employee_file(employee, str(output_path))
                         
                         if success:
                             success_count += 1
-                            message = f"Создан: {employee.full_name}"
+                            message = f"Создан: {employee['ФИО работника']}"
                         else:
-                            message = f"Ошибка создания: {employee.full_name}"
+                            message = f"Ошибка создания: {employee['ФИО работника']}"
                     
                     processed_files_total += 1
                     
@@ -356,10 +356,10 @@ class FileManager:
                     time.sleep(0.05)
                     
                 except Exception as e:
-                    self.logger.error(f"Ошибка создания файла для {employee.full_name}: {e}")
+                    self.logger.error(f"Ошибка создания файла для {employee['ФИО работника']}: {e}")
                     processed_files_total += 1
                     if progress_callback:
-                        progress_callback(processed_files_total, total, f"Ошибка: {employee.full_name}")
+                        progress_callback(processed_files_total, total, f"Ошибка: {employee['ФИО работника']}")
             
             processed_departments += 1
             
@@ -430,7 +430,7 @@ class FileManager:
                 
                 if vacation_info:
                     result.append(vacation_info)
-                    message = f"Обработан: {vacation_info.employee.full_name}"
+                    message = f"Обработан: {vacation_info.employee['ФИО работника']}"
                 else:
                     message = f"Ошибка чтения: {Path(file_path).name}"
                 

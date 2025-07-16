@@ -20,54 +20,287 @@ from config import Config
 
 class ExcelHandler:
     """Класс для работы с Excel файлами"""
-    
-    def __init__(self, config: Config):
+
+
+    def __init__(self, config):
         self.config = config
         self.logger = logging.getLogger(__name__)
-
-    def _parse_cell_address(self, address: str) -> Tuple[bool, str, Optional[str]]:
-        """Парсит адрес ячейки"""
-        address = address.strip()
-        
-        if address.startswith('#'):
-            raise ValueError(f"Недопустимый адрес ячейки: {address}")
-        
-        if address.startswith('='):
-            clean_address = address[1:]
-            if '!' in clean_address:
-                parts = clean_address.split('!')
-                if len(parts) != 2:
-                    raise ValueError(f"Неверный формат ссылки: {address}")
-                sheet_name = parts[0].strip("'\"")
-                cell_ref = parts[1]
-                return True, cell_ref, sheet_name
-            else:
-                return True, clean_address, None
+        # ДОБАВЛЯЕМ КЭШИРОВАНИЕ RULES
+        self._cached_rules = {}
+        self._cached_templates = {}
+    
+    def _get_cached_rules(self, template_path: str) -> Dict[str, Dict[str, str]]:
+        """Получает rules из кэша или загружает их"""
+        if template_path not in self._cached_rules:
+            print(f"=== DEBUG EXCEL: Загружаем rules в кэш для {template_path} ===")
+            self._cached_rules[template_path] = self._load_filling_rules(template_path)
         else:
-            return False, address, None
+            print(f"=== DEBUG EXCEL: Используем rules из кэша для {template_path} ===")
+        
+        return self._cached_rules[template_path]
+        
+    def create_employee_file(self, employee: Employee, output_path: str) -> bool:
+        """Создает файл сотрудника на основе шаблона с rules"""
+        print(f"=== DEBUG EXCEL: create_employee_file вызван для {employee['ФИО работника']} ===")
+        print(f"=== DEBUG EXCEL: output_path = {output_path} ===")
+     
+        template_path = Path(self.config.employee_template)
+        print(f"=== DEBUG EXCEL: template_path = {template_path} ===")
+        
+        if not template_path.exists():
+            print(f"=== DEBUG EXCEL: ОШИБКА - Шаблон не найден: {template_path} ===")
+            raise FileNotFoundError(f"Шаблон сотрудника не найден: {template_path}")
+        
+        print(f"=== DEBUG EXCEL: Создаем папку для файла ===")
+        Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+        
+        print(f"=== DEBUG EXCEL: Копируем шаблон ===")
+        shutil.copy2(template_path, output_path)
+        
+        print(f"=== DEBUG EXCEL: Загружаем rules из кэша ===")
+        try:
+            # ИСПОЛЬЗУЕМ КЭШИРОВАННЫЕ RULES
+            rules = self._get_cached_rules(str(template_path))
+            print(f"=== DEBUG EXCEL: Rules загружены: {len(rules)} типов ===")
+            
+            # Проверяем что в rules есть данные
+            total_rules = sum(len(rule_items) for rule_items in rules.values())
+            print(f"=== DEBUG EXCEL: Всего правил: {total_rules} ===")
+            
+            if total_rules == 0:
+                print(f"=== DEBUG EXCEL: ВНИМАНИЕ - Rules пусты! ===")
+                return False
+                
+        except Exception as e:
+            print(f"=== DEBUG EXCEL: ОШИБКА при загрузке rules: {e} ===")
+            import traceback
+            traceback.print_exc()
+            return False
+        
+        print(f"=== DEBUG EXCEL: Подготавливаем данные сотрудника ===")
+        # Динамическое формирование data_dict на основе rules['value']
+        def field_name_to_attr(field_name):
+            # Маппинг для несовпадающих имён (дополняй по необходимости)
+            mapping = {
+                'ФИО работника': 'full_name',
+                'Табельный номер': 'tab_number',
+                'Должность': 'position',
+                'Подразделение 1': 'department1',
+                'Подразделение 2': 'department2',
+                'Подразделение 3': 'department3',
+                'Подразделение 4': 'department4',
+                'Локация графика работы': 'location',
+                'Дата приема на работу': 'hire_date',
+                'Основной отпуск к дате отсечки': 'vacation_remainder',
+                'Дополнительный отпуск НРД к дате отсечки': 'additional_vacation_nrd',
+                'Дополнительный северный отпуск к дате отсечки': 'additional_vacation_north',
+                'Дата выгрузки': 'period_cutoff_date',
+                # Добавь сюда все нестандартные поля, если появятся
+            }
+            return mapping.get(field_name, field_name)
 
-    def _fill_cell_or_range(self, workbook, sheet_name: Optional[str], cell_ref: str, value: any):
+        data_dict = {}
+        for field_name in rules.get('value', {}).values():
+            value = employee.get(field_name, '')
+            if value is None:
+                value = ''
+            data_dict[field_name] = value
+        print(f"=== DEBUG EXCEL: Данные подготовлены: {len(data_dict)} полей ===")
+        print(f"=== DEBUG EXCEL: Данные сотрудника: {data_dict} ===")
+        
+        print(f"=== DEBUG EXCEL: Открываем файл для заполнения ===")
+        try:
+            # ОПТИМИЗАЦИЯ: Используем более быстрые параметры
+            workbook = openpyxl.load_workbook(
+                output_path,
+                data_only=False,  # Сохраняем формулы
+                read_only=False,
+                keep_links=False  # Не читать внешние ссылки
+            )
+            print(f"=== DEBUG EXCEL: Файл открыт для заполнения ===")
+            
+            print(f"=== DEBUG EXCEL: Применяем rules к файлу ===")
+            self._apply_rules_to_template(workbook, rules, data_dict)
+            
+            print(f"=== DEBUG EXCEL: Сохраняем файл ===")
+            workbook.save(output_path)
+            workbook.close()
+            
+            print(f"=== DEBUG EXCEL: Файл сохранен успешно ===")
+            # Автотест: проверить, что реально записалось в файл
+            self.test_created_employee_file(output_path, rules)
+            return True
+            
+        except Exception as e:
+            print(f"=== DEBUG EXCEL: ОШИБКА при заполнении файла: {e} ===")
+            import traceback
+            traceback.print_exc()
+            return False
+
+    def _apply_rules_to_template(self, workbook, rules: Dict[str, Dict[str, str]], data_dict: Dict[str, any]):
+        """Применяет правила заполнения к шаблону"""
+        print(f"=== DEBUG EXCEL: Применяем rules, типов: {len(rules)} ===")
+        
+        for rule_type, rule_items in rules.items():
+            print(f"=== DEBUG EXCEL: Обрабатываем тип {rule_type}, правил: {len(rule_items)} ===")
+            
+            for cell_address, field_name in rule_items.items():
+                if rule_type == 'value':
+                    # Для value - только значение без заголовка
+                    value = data_dict.get(field_name, '')
+                    print(f"=== DEBUG: Заполняем {cell_address} = '{value}' (поле: {field_name}) ===")
+                    
+                    try:
+                        is_formula, clean_address, sheet_name = self._parse_cell_address(cell_address)
+                        print(f"=== DEBUG: Парсинг: формула={is_formula}, адрес='{clean_address}', лист='{sheet_name}' ===")
+                        
+                        self._fill_cell_or_range(workbook, sheet_name, clean_address, value)
+                        print(f"=== DEBUG: Успешно заполнено {cell_address} значением '{value}' ===")
+                        
+                    except Exception as e:
+                        print(f"=== DEBUG: ОШИБКА при заполнении {cell_address}: {e} ===")
+                        import traceback
+                        traceback.print_exc()
+                        
+                elif rule_type == 'header':
+                    # Для header - НЕ заменяем на field_name, оставляем как есть в шаблоне
+                    print(f"=== DEBUG: Пропускаем header rule: {cell_address} -> {field_name} ===")
+                    continue
+                elif rule_type == 'read':
+                    # Для read - пропускаем, это для чтения данных из файлов сотрудников
+                    print(f"=== DEBUG: Пропускаем read rule: {cell_address} -> {field_name} ===")
+                    continue
+                else:
+                    print(f"=== DEBUG: Неизвестный тип rule: {rule_type} ===")
+                    continue
+
+    def _parse_cell_address(self, address: str) -> tuple:
+        """Парсит адрес ячейки, возвращает (is_formula, clean_address, sheet_name)"""
+        print(f"=== DEBUG: Парсинг адреса '{address}' ===")
+        
+        is_formula = address.startswith('=')
+        
+        if is_formula:
+            # Убираем знак равенства и извлекаем адрес
+            formula = address[1:]
+            print(f"=== DEBUG: Это формула: '{formula}' ===")
+            
+            # Простой парсинг для формул вида 'Лист'!A1
+            if '!' in formula:
+                sheet_part, cell_part = formula.split('!', 1)
+                sheet_name = sheet_part.strip("'\"")
+                clean_address = cell_part.strip()
+                print(f"=== DEBUG: Лист '{sheet_name}', адрес '{clean_address}' ===")
+            else:
+                sheet_name = None
+                clean_address = formula.strip()
+                print(f"=== DEBUG: Без листа, адрес '{clean_address}' ===")
+        else:
+            # Обычный адрес - может быть именованный диапазон
+            sheet_name = None
+            clean_address = address.strip()
+            print(f"=== DEBUG: Обычный адрес '{clean_address}' ===")
+        
+        print(f"=== DEBUG: Результат парсинга: формула={is_formula}, адрес='{clean_address}', лист='{sheet_name}' ===")
+        return is_formula, clean_address, sheet_name
+
+    def _fill_cell_or_range(self, workbook, sheet_name: str, address: str, value):
         """Заполняет ячейку или диапазон значением"""
-        worksheet = workbook[sheet_name] if sheet_name and sheet_name in workbook.sheetnames else workbook.active
+        print(f"=== DEBUG: Заполняем лист='{sheet_name}', адрес='{address}', значение='{value}' ===")
         
-        if ';' in cell_ref:
-            for single_ref in cell_ref.split(';'):
-                single_ref = single_ref.strip()
-                if single_ref:
-                    worksheet[single_ref] = value
-        elif ':' in cell_ref:
-            cell_range = worksheet[cell_ref]
-            if hasattr(cell_range, '__iter__'):
-                for row in cell_range:
-                    if hasattr(row, '__iter__'):
-                        for cell in row:
-                            cell.value = value
-                    else:
-                        row.value = value
+        try:
+            # Определяем активный лист
+            if sheet_name:
+                if sheet_name in workbook.sheetnames:
+                    worksheet = workbook[sheet_name]
+                    print(f"=== DEBUG: Используем лист '{sheet_name}' ===")
+                else:
+                    print(f"=== DEBUG: Лист '{sheet_name}' не найден, используем первый лист ===")
+                    worksheet = workbook.worksheets[0]
             else:
-                cell_range.value = value
-        else:
-            worksheet[cell_ref] = value
+                worksheet = workbook.worksheets[0]
+                print(f"=== DEBUG: Используем первый лист ===")
+            
+            # Проверяем, является ли адрес стандартным (A1, B2, etc.)
+            import re
+            if re.match(r'^[A-Z]+[0-9]+$', address):
+                # Стандартный адрес ячейки
+                worksheet[address] = value
+                print(f"=== DEBUG: Заполнили стандартную ячейку {address} значением '{value}' ===")
+            elif ':' in address:
+                # Это диапазон - заполняем первую ячейку
+                start_cell = address.split(':')[0]
+                if re.match(r'^[A-Z]+[0-9]+$', start_cell):
+                    worksheet[start_cell] = value
+                    print(f"=== DEBUG: Заполнили первую ячейку диапазона {start_cell} значением '{value}' ===")
+                else:
+                    print(f"=== DEBUG: Неверный формат диапазона {address} ===")
+            else:
+                # Возможно именованный диапазон или нестандартный адрес
+                print(f"=== DEBUG: Попытка заполнить именованный диапазон или нестандартный адрес '{address}' ===")
+                try:
+                    # Попробуем найти именованный диапазон
+                    if address in workbook.defined_names:
+                        print(f"=== DEBUG: Найден именованный диапазон '{address}' ===")
+                        # Для именованного диапазона получаем его адрес
+                        defn = workbook.defined_names[address]
+                        if defn.attr_text:
+                            # Парсим адрес именованного диапазона
+                            range_text = defn.attr_text
+                            print(f"=== DEBUG: Адрес именованного диапазона: '{range_text}' ===")
+                            
+                            # Простой парсинг для Sheet1!$A$1 формата
+                            if '!' in range_text:
+                                sheet_part, cell_part = range_text.split('!', 1)
+                                cell_part = cell_part.replace('$', '')  # Убираем символы $
+                                if re.match(r'^[A-Z]+[0-9]+$', cell_part):
+                                    worksheet[cell_part] = value
+                                    print(f"=== DEBUG: Заполнили именованный диапазон {cell_part} значением '{value}' ===")
+                                else:
+                                    print(f"=== DEBUG: Неверный формат ячейки в именованном диапазоне: '{cell_part}' ===")
+                            else:
+                                print(f"=== DEBUG: Неверный формат именованного диапазона: '{range_text}' ===")
+                    else:
+                        print(f"=== DEBUG: Именованный диапазон '{address}' не найден ===")
+                        # Попытаемся обработать как обычную ячейку
+                        worksheet[address] = value
+                        print(f"=== DEBUG: Заполнили как обычную ячейку '{address}' значением '{value}' ===")
+                except Exception as e2:
+                    print(f"=== DEBUG: Ошибка при работе с именованным диапазоном: {e2} ===")
+                    raise e2
+                    
+        except Exception as e:
+            print(f"=== DEBUG: Ошибка при заполнении {address}: {e} ===")
+            # Попробуем через координаты
+            try:
+                from openpyxl.utils import coordinate_to_tuple
+                if re.match(r'^[A-Z]+[0-9]+$', address):
+                    row, col = coordinate_to_tuple(address)
+                    worksheet = workbook.worksheets[0]
+                    worksheet.cell(row=row, column=col, value=value)
+                    print(f"=== DEBUG: Заполнили через координаты row={row}, col={col} значением '{value}' ===")
+                else:
+                    print(f"=== DEBUG: Не могу преобразовать адрес '{address}' в координаты ===")
+                    raise e
+            except Exception as e2:
+                print(f"=== DEBUG: Ошибка при заполнении через координаты: {e2} ===")
+                raise e2
+        
+    def clear_cache(self):
+        """Очищает кэш rules"""
+        self._cached_rules.clear()
+        self._cached_templates.clear()
+        print("=== DEBUG EXCEL: Кэш очищен ===")
+
+
+
+
+
+
+
+
+
+
 
     def _load_filling_rules(self, template_path: str) -> Dict[str, Dict[str, str]]:
         """Загружает правила заполнения из листа 'rules'"""
@@ -105,181 +338,6 @@ class ExcelHandler:
         
         return rules
 
-    def _apply_rules_to_template(self, workbook, rules: Dict[str, Dict[str, str]], data_dict: Dict[str, any]):
-        """Применяет правила заполнения к шаблону"""
-        for rule_type, rule_items in rules.items():
-            for cell_address, field_name in rule_items.items():
-                if rule_type == 'value':
-                    # Для value - только значение без заголовка
-                    value = data_dict.get(field_name, '')
-                elif rule_type == 'header':
-                    # Для header - НЕ заменяем на field_name, оставляем как есть в шаблоне
-                    continue  # Пропускаем header rules при заполнении
-                elif rule_type == 'read':
-                    # Для read - пропускаем, это для чтения данных из файлов сотрудников
-                    continue
-                else:
-                    continue
-                
-                is_formula, clean_address, sheet_name = self._parse_cell_address(cell_address)
-                self._fill_cell_or_range(workbook, sheet_name, clean_address, value)
-
-    def create_employee_file(self, employee: Employee, output_path: str) -> bool:
-            """Создает файл сотрудника на основе шаблона с rules"""
-            print(f"=== DEBUG EXCEL: create_employee_file вызван для {employee.full_name} ===")
-            print(f"=== DEBUG EXCEL: output_path = {output_path} ===")
-            
-            template_path = Path(self.config.employee_template)
-            print(f"=== DEBUG EXCEL: template_path = {template_path} ===")
-            
-            if not template_path.exists():
-                print(f"=== DEBUG EXCEL: ОШИБКА - Шаблон не найден: {template_path} ===")
-                raise FileNotFoundError(f"Шаблон сотрудника не найден: {template_path}")
-            
-            print(f"=== DEBUG EXCEL: Создаем папку для файла ===")
-            Path(output_path).parent.mkdir(parents=True, exist_ok=True)
-            
-            print(f"=== DEBUG EXCEL: Копируем шаблон ===")
-            shutil.copy2(template_path, output_path)
-            
-            print(f"=== DEBUG EXCEL: Загружаем rules из шаблона ===")
-            try:
-                rules = self._load_filling_rules(str(template_path))
-                print(f"=== DEBUG EXCEL: Rules загружены: {len(rules)} типов ===")
-            except Exception as e:
-                print(f"=== DEBUG EXCEL: ОШИБКА при загрузке rules: {e} ===")
-                import traceback
-                traceback.print_exc()
-                return False
-            
-            print(f"=== DEBUG EXCEL: Подготавливаем данные сотрудника ===")
-            employee_data = {
-                'ФИО работника': employee.full_name,
-                'Табельный номер': employee.tab_number,
-                'Должность': getattr(employee, 'position', ''),
-                'Подразделение 1': employee.department1,
-                'Подразделение 2': employee.department2,
-                'Подразделение 3': employee.department3,
-                'Подразделение 4': employee.department4,
-                'Локация': getattr(employee, 'location', ''),
-                'Остатки отпуска': getattr(employee, 'vacation_remainder', ''),
-                'Дата приема': getattr(employee, 'hire_date', ''),
-                'Дата отсечки периода': getattr(employee, 'period_cutoff_date', ''),
-                'Дополнительный отпуск НРД': getattr(employee, 'additional_vacation_nrd', ''),
-                'Дополнительный отпуск Северный': getattr(employee, 'additional_vacation_north', '')
-            }
-            
-            print(f"=== DEBUG EXCEL: Открываем файл для заполнения ===")
-            try:
-                workbook = openpyxl.load_workbook(output_path)
-                print(f"=== DEBUG EXCEL: Файл открыт успешно ===")
-            except Exception as e:
-                print(f"=== DEBUG EXCEL: ОШИБКА при открытии файла: {e} ===")
-                return False
-            
-            print(f"=== DEBUG EXCEL: Применяем rules к шаблону ===")
-            try:
-                self._apply_rules_to_template(workbook, rules, employee_data)
-                print(f"=== DEBUG EXCEL: Rules применены успешно ===")
-            except Exception as e:
-                print(f"=== DEBUG EXCEL: ОШИБКА при применении rules: {e} ===")
-                import traceback
-                traceback.print_exc()
-                workbook.close()
-                return False
-            
-            print(f"=== DEBUG EXCEL: Сохраняем файл ===")
-            try:
-                workbook.save(output_path)
-                print(f"=== DEBUG EXCEL: Файл сохранен успешно ===")
-            except Exception as e:
-                print(f"=== DEBUG EXCEL: ОШИБКА при сохранении файла: {e} ===")
-                import traceback
-                traceback.print_exc()
-                workbook.close()
-                return False
-            
-            print(f"=== DEBUG EXCEL: Закрываем файл ===")
-            workbook.close()
-            
-            print(f"=== DEBUG EXCEL: create_employee_file завершен успешно ===")
-            return True
-
-    def _load_filling_rules(self, template_path: str) -> Dict[str, Dict[str, str]]:
-            """Загружает правила заполнения из листа 'rules' (ОПТИМИЗИРОВАННО)"""
-            print(f"=== DEBUG EXCEL: _load_filling_rules вызван для {template_path} ===")
-            
-            rules = {'value': {}, 'header': {}, 'read': {}}
-            
-            try:
-                print(f"=== DEBUG EXCEL: Открываем шаблон (только лист rules) ===")
-                
-                # ОПТИМИЗАЦИЯ: Читаем только нужные листы
-                workbook = openpyxl.load_workbook(
-                    template_path, 
-                    data_only=True, 
-                    read_only=True,
-                    keep_links=False  # Не читать внешние ссылки
-                )
-                print(f"=== DEBUG EXCEL: Шаблон открыт ===")
-                
-                print(f"=== DEBUG EXCEL: Листы в файле: {workbook.sheetnames} ===")
-                
-                if 'rules' not in workbook.sheetnames:
-                    print(f"=== DEBUG EXCEL: ВНИМАНИЕ - Лист 'rules' не найден ===")
-                    workbook.close()
-                    return rules
-                
-                print(f"=== DEBUG EXCEL: Читаем лист rules ===")
-                rules_sheet = workbook['rules']
-                
-                # ОПТИМИЗАЦИЯ: Читаем только нужную область (A1:C100)
-                print(f"=== DEBUG EXCEL: Читаем область A1:C100 ===")
-                
-                rules_count = 0
-                
-                # Читаем построчно только первые 3 столбца и первые 100 строк
-                for row in range(2, 101):  # Строки 2-100
-                    try:
-                        # Читаем только нужные ячейки
-                        source_val = rules_sheet.cell(row=row, column=1).value  # A
-                        target_val = rules_sheet.cell(row=row, column=2).value  # B  
-                        type_val = rules_sheet.cell(row=row, column=3).value    # C
-                        
-                        # Если все 3 ячейки пустые - прерываем чтение
-                        if not source_val and not target_val and not type_val:
-                            break
-                        
-                        if source_val and target_val and type_val:
-                            source_address = str(source_val).strip()
-                            target_field = str(target_val).strip()
-                            rule_type = str(type_val).strip().lower()
-                            
-                            if rule_type in ['value', 'header', 'read']:
-                                rules[rule_type][source_address] = target_field
-                                rules_count += 1
-                                
-                                if rules_count % 10 == 0:
-                                    print(f"=== DEBUG EXCEL: Обработано {rules_count} правил ===")
-                    
-                    except Exception as e:
-                        print(f"=== DEBUG EXCEL: Ошибка в строке {row}: {e} ===")
-                        continue
-                
-                print(f"=== DEBUG EXCEL: Загружено {rules_count} правил ===")
-                workbook.close()
-                
-                return rules
-                
-            except Exception as e:
-                print(f"=== DEBUG EXCEL: ОШИБКА в _load_filling_rules: {e} ===")
-                import traceback
-                traceback.print_exc()
-                
-                # Возвращаем пустые правила
-                print(f"=== DEBUG EXCEL: Возвращаем пустые правила ===")
-                return {'value': {}, 'header': {}, 'read': {}}
-
     def read_vacation_info_from_file(self, file_path: str) -> Optional[VacationInfo]:
         """Читает информацию об отпусках из файла сотрудника"""
         try:
@@ -291,31 +349,15 @@ class ExcelHandler:
             worksheet = workbook.worksheets[sheet_index]
             
             employee = Employee()
-            employee.file_path = file_path
-            
-            # Читаем данные сотрудника из конфига
-            data_rows = file_structure.get("employee_data_rows", {"start": 15, "end": 29})
-            emp_columns = file_structure.get("employee_columns", {})
-            dept_cells = file_structure.get("department_cells", {})
-            
-            # Ищем первую заполненную строку для базовой информации
-            for row in range(data_rows["start"], data_rows["end"] + 1):
-                tab_number = self._get_cell_value(worksheet, f"{emp_columns.get('tab_number', 'B')}{row}")
-                full_name = self._get_cell_value(worksheet, f"{emp_columns.get('full_name', 'C')}{row}")
-                position = self._get_cell_value(worksheet, f"{emp_columns.get('position', 'D')}{row}")
-                
-                if tab_number and full_name:
-                    employee.tab_number = str(tab_number).strip()
-                    employee.full_name = str(full_name).strip()
-                    if position:
-                        employee.position = str(position).strip()
-                    break
-            
-            # Читаем подразделения из шапки файла
-            employee.department1 = str(self._get_cell_value(worksheet, dept_cells.get("department1", "C2")) or "").strip()
-            employee.department2 = str(self._get_cell_value(worksheet, dept_cells.get("department2", "C3")) or "").strip()
-            employee.department3 = str(self._get_cell_value(worksheet, dept_cells.get("department3", "C4")) or "").strip()
-            employee.department4 = str(self._get_cell_value(worksheet, dept_cells.get("department4", "C5")) or "").strip()
+            # Удаляем/комментируем присваивания для Employee-объектов, так как теперь используется dict
+            # employee.file_path = file_path
+            # employee.tab_number = str(tab_number).strip()
+            # employee.full_name = str(full_name).strip()
+            # employee.position = str(position).strip()
+            # employee.department1 = str(self._get_cell_value(worksheet, dept_cells.get("department1", "C2")) or "").strip()
+            # employee.department2 = str(self._get_cell_value(worksheet, dept_cells.get("department2", "C3")) or "").strip()
+            # employee.department3 = str(self._get_cell_value(worksheet, dept_cells.get("department3", "C4")) or "").strip()
+            # employee.department4 = str(self._get_cell_value(worksheet, dept_cells.get("department4", "C5")) or "").strip()
             
             # Читаем периоды отпусков
             vacation_columns = file_structure.get("vacation_columns", {})
@@ -508,13 +550,13 @@ class ExcelHandler:
         
         return {
             'row_number': index + 1,
-            'employee_name': emp.full_name,
-            'tab_number': emp.tab_number,
-            'position': getattr(emp, 'position', ''),
-            'department1': emp.department1,
-            'department2': emp.department2,
-            'department3': emp.department3,
-            'department4': emp.department4,
+            'employee_name': emp['ФИО работника'],
+            'tab_number': emp['Табельный номер'],
+            'position': emp['Должность'],
+            'department1': emp['Подразделение 1'],
+            'department2': emp['Подразделение 2'],
+            'department3': emp['Подразделение 3'],
+            'department4': emp['Подразделение 4'],
             'status': status_text,
             'total_days': vacation_info.total_days,
             'periods_count': vacation_info.periods_count
@@ -525,9 +567,9 @@ class ExcelHandler:
         emp = normalized_record['employee']
         return {
             'row_number': index + 1,
-            'tab_number': emp.tab_number,
-            'employee_name': emp.full_name,
-            'position': getattr(emp, 'position', ''),
+            'tab_number': emp['Табельный номер'],
+            'employee_name': emp['ФИО работника'],
+            'position': emp['Должность'],
             'start_date': normalized_record['start_date'].strftime('%d.%m.%Y') if normalized_record['start_date'] else '',
             'end_date': normalized_record['end_date'].strftime('%d.%m.%Y') if normalized_record['end_date'] else '',
             'duration': normalized_record['days'] if normalized_record['days'] > 0 else ''
@@ -747,8 +789,8 @@ class ExcelHandler:
 
     def generate_output_filename(self, employee: Employee) -> str:
         """Генерирует имя файла для сотрудника"""
-        clean_fio = self._clean_filename(employee.full_name)
-        clean_tab_num = self._clean_filename(employee.tab_number)
+        clean_fio = self._clean_filename(employee['ФИО работника'])
+        clean_tab_num = self._clean_filename(employee['Табельный номер'])
         return f"{clean_fio} ({clean_tab_num}).xlsx"
 
     def generate_block_report_filename(self, block_name: str) -> str:
@@ -764,3 +806,20 @@ class ExcelHandler:
         
         clean_name = re.sub(r'[\\/:*?"<>|]', '_', filename).strip()
         return clean_name[:100] if len(clean_name) > 100 else clean_name or "unnamed"
+
+    def test_created_employee_file(self, file_path: str, rules: Dict[str, Dict[str, str]]):
+        """Проверяет значения в созданном файле по адресам из rules['value'] и выводит их в консоль"""
+        import openpyxl
+        print(f"=== TEST: Проверка заполнения файла: {file_path} ===")
+        workbook = openpyxl.load_workbook(file_path, data_only=True)
+        for cell_address, field_name in rules.get('value', {}).items():
+            try:
+                is_formula, clean_address, sheet_name = self._parse_cell_address(cell_address)
+                if sheet_name and sheet_name in workbook.sheetnames:
+                    ws = workbook[sheet_name]
+                else:
+                    ws = workbook.worksheets[0]
+                value = ws[clean_address].value if clean_address in ws else None
+                print(f"  {field_name} ({cell_address}): {value}")
+            except Exception as e:
+                print(f"  {field_name} ({cell_address}): ERROR: {e}")
