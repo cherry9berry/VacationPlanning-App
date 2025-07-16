@@ -583,29 +583,22 @@ class CreateFilesWindow:
 
     def create_files(self):
         """Создание файлов сотрудников"""
-        print("=== DEBUG: create_files() вызван ===")
-        
         if not self.validation_result or not self.validation_result.is_valid:
-            print("=== DEBUG: Валидация не пройдена ===")
             messagebox.showwarning("Предупреждение", "Сначала выполните валидацию файла")
             return
         
         if not self.output_dir_path:
-            print("=== DEBUG: Нет папки ===")
             messagebox.showwarning("Предупреждение", "Выберите целевую папку")
             return
         
         if not hasattr(self, 'new_employees_count') or self.new_employees_count <= 0:
-            print(f"=== DEBUG: Нет новых сотрудников: {getattr(self, 'new_employees_count', 'НЕТ АТРИБУТА')} ===")
             messagebox.showwarning("Предупреждение", "Нет новых записей для создания")
             return
         
-        print("=== DEBUG: Все проверки пройдены, вызываем start_processing ===")
         self.start_processing()
 
     def start_processing(self):
             """Начинает процесс создания файлов"""
-            print("=== DEBUG: start_processing() вызван ===")
             print(f"is_processing: {self.is_processing}")
             print(f"validation_result: {self.validation_result}")
             print(f"validation_result.is_valid: {self.validation_result.is_valid if self.validation_result else 'None'}")
@@ -617,18 +610,12 @@ class CreateFilesWindow:
             self.create_btn.config(state=tk.DISABLED)
             
             # Переключаемся на отображение прогресса
-            print("=== DEBUG: Переключение на прогресс ===")
             self.show_progress_view()
             
             self.add_info("Начало создания файлов...")
-            print("=== DEBUG: Добавили info, запускаем поток ===")
             
             def processing_thread():
                 try:
-                    print("=== DEBUG: Поток запущен, вызываем процессор ===")
-                    print(f"Параметры: {self.staff_file_path}, {self.output_dir_path}")
-                    
-                    # ИСПРАВЛЕНО: Убираем названия параметров
                     operation_log = self.processor.create_employee_files_to_existing(
                         self.staff_file_path,
                         self.output_dir_path,
@@ -637,21 +624,17 @@ class CreateFilesWindow:
                         self.on_file_progress_update
                     )
                     
-                    print("=== DEBUG: Процессор завершен, планируем завершение ===")
                     # Завершение в главном потоке
                     self.window.after(0, self.on_processing_complete, operation_log)
                     
                 except Exception as e:
-                    print(f"=== DEBUG: ОШИБКА В ПОТОКЕ: {e} ===")
+                    self.logger.error(f"Ошибка в потоке обработки: {e}")
                     import traceback
                     traceback.print_exc()
                     self.window.after(0, self.on_processing_error, str(e))
             
-            print("=== DEBUG: Создаем поток ===")
             thread = threading.Thread(target=processing_thread, daemon=True)
-            print("=== DEBUG: Запускаем поток ===")
             thread.start()
-            print("=== DEBUG: Поток запущен, выходим из start_processing ===")
 
     def show_progress_view(self):
         """Показывает область прогресса вместо информации"""
@@ -746,35 +729,73 @@ class CreateFilesWindow:
 
     def on_processing_complete(self, result):
         """Обработчик завершения создания файлов"""
-        print(f"=== DEBUG GUI: on_processing_complete вызван с результатом: {result} ===")
         
         try:
             if not self.window or not self.window.winfo_exists():
-                print(f"=== DEBUG GUI: Окно не существует, выходим ===")
                 return
             
             # Останавливаем прогресс бар
             self.progress_var.set(100)
             
-            # Результат может быть словарем или объектом
-            if isinstance(result, dict):
-                created_count = result.get('created', 0)
-                skipped_count = result.get('skipped', 0)
-                error_count = result.get('errors', 0)
-                processing_time = result.get('processing_time', 0)
-                log_entries = result.get('log_entries', [])
+            # Извлекаем данные из OperationLog
+            if hasattr(result, 'entries'):
+                # Это OperationLog объект
+                log_entries = result.entries
+                processing_time = result.duration or 0.0
+                
+                # Подсчитываем статистику из записей лога
+                created_count = 0
+                skipped_count = 0
+                error_count = 0
+                average_time_per_file = 0.0
+                
+                for entry in log_entries:
+                    message = entry.get('message', '')
+                    level = entry.get('level', 'INFO')
+                    
+                    if 'создано' in message.lower() and 'файлов' in message.lower():
+                        # Ищем количество созданных файлов
+                        import re
+                        match = re.search(r'(\d+)', message)
+                        if match:
+                            created_count = int(match.group(1))
+                    elif 'пропущено' in message.lower():
+                        # Ищем количество пропущенных файлов
+                        import re
+                        match = re.search(r'(\d+)', message)
+                        if match:
+                            skipped_count = int(match.group(1))
+                    elif 'среднее время на файл' in message.lower():
+                        # Ищем среднее время на файл
+                        import re
+                        match = re.search(r'(\d+\.?\d*)с', message)
+                        if match:
+                            average_time_per_file = float(match.group(1))
+                    elif level == 'ERROR':
+                        error_count += 1
+                
             else:
-                # Если результат - объект с атрибутами
-                created_count = getattr(result, 'created', 0)
-                skipped_count = getattr(result, 'skipped', 0)
-                error_count = getattr(result, 'errors', 0)
-                processing_time = getattr(result, 'processing_time', 0)
-                log_entries = getattr(result, 'log_entries', [])
+                # Старый формат (словарь или объект с атрибутами)
+                if isinstance(result, dict):
+                    created_count = result.get('created', 0)
+                    skipped_count = result.get('skipped', 0)
+                    error_count = result.get('errors', 0)
+                    processing_time = result.get('processing_time', 0)
+                    log_entries = result.get('log_entries', [])
+                else:
+                    created_count = getattr(result, 'created', 0)
+                    skipped_count = getattr(result, 'skipped', 0)
+                    error_count = getattr(result, 'errors', 0)
+                    processing_time = getattr(result, 'processing_time', 0)
+                    log_entries = getattr(result, 'log_entries', [])
             
-            # Обновляем счетчики
-            self.created_count_label.config(text=f"Создано: {created_count}")
-            self.skipped_count_label.config(text=f"Пропущено: {skipped_count}")
-            self.error_count_label.config(text=f"Ошибок: {error_count}")
+            # Обновляем счетчики (если элементы существуют)
+            if hasattr(self, 'created_count_label'):
+                self.created_count_label.config(text=f"Создано: {created_count}")
+            if hasattr(self, 'skipped_count_label'):
+                self.skipped_count_label.config(text=f"Пропущено: {skipped_count}")
+            if hasattr(self, 'error_count_label'):
+                self.error_count_label.config(text=f"Ошибок: {error_count}")
             
             # Показываем итоговое сообщение
             if error_count > 0:
@@ -782,17 +803,20 @@ class CreateFilesWindow:
                 self.add_info_to_existing("=" * 50)
                 self.add_info_to_existing("СОЗДАНИЕ ФАЙЛОВ ЗАВЕРШЕНО С ОШИБКАМИ!")
                 self.add_info_to_existing(f"Время выполнения: {processing_time:.1f} сек")
+                if average_time_per_file > 0:
+                    self.add_info_to_existing(f"Среднее время на файл: {average_time_per_file:.2f} сек")
                 self.add_info_to_existing("=" * 50)
             else:
                 status_message = f"Успешно завершено: {created_count} создано, {skipped_count} пропущено"
                 self.add_info_to_existing("=" * 50)
                 self.add_info_to_existing("СОЗДАНИЕ ФАЙЛОВ УСПЕШНО ЗАВЕРШЕНО!")
                 self.add_info_to_existing(f"Время выполнения: {processing_time:.1f} сек")
+                if average_time_per_file > 0:
+                    self.add_info_to_existing(f"Среднее время на файл: {average_time_per_file:.2f} сек")
                 self.add_info_to_existing("=" * 50)
             
             # Обрабатываем лог записи
             if log_entries:
-                print(f"=== DEBUG GUI: Обрабатываем {len(log_entries)} лог записей ===")
                 for entry in log_entries:
                     if isinstance(entry, dict):
                         # Если entry - словарь
@@ -815,20 +839,21 @@ class CreateFilesWindow:
                         else:
                             self.add_info_to_existing(message)
             
-            # Обновляем статус
-            self.status_label.config(text=status_message)
+            # Обновляем статус (если элемент существует)
+            if hasattr(self, 'status_label'):
+                self.status_label.config(text=status_message)
             
-            # Включаем кнопки
-            self.create_button.config(state=tk.NORMAL)
-            self.back_button.config(state=tk.NORMAL)
+            # Включаем кнопки (если элементы существуют)
+            if hasattr(self, 'create_button'):
+                self.create_button.config(state=tk.NORMAL)
+            if hasattr(self, 'back_button'):
+                self.back_button.config(state=tk.NORMAL)
             
             # Устанавливаем флаг завершения
             self.is_processing = False
             
-            print(f"=== DEBUG GUI: on_processing_complete завершен ===")
             
         except Exception as e:
-            print(f"=== DEBUG GUI: Ошибка в on_processing_complete: {e} ===")
             import traceback
             traceback.print_exc()
             

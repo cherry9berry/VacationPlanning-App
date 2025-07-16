@@ -7,7 +7,7 @@
 from dataclasses import dataclass, field
 from datetime import date, datetime
 from enum import Enum
-from typing import List, Optional
+from typing import List, Optional, Dict
 
 
 class VacationStatus(Enum):
@@ -65,7 +65,7 @@ class VacationPeriod:
 @dataclass
 class VacationInfo:
     """Информация об отпусках сотрудника"""
-    employee: Employee
+    employee: Dict[str, str]
     periods: List[VacationPeriod] = field(default_factory=list)
     status: VacationStatus = VacationStatus.NOT_FILLED
     validation_errors: List[str] = field(default_factory=list)

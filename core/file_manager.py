@@ -56,7 +56,7 @@ class FileManager:
             self.logger.error(f"Ошибка сканирования папки {target_directory}: {e}")
             return {}
 
-    def group_employees_by_department(self, employees: List[Employee]) -> Dict[str, List[Employee]]:
+    def group_employees_by_department(self, employees: List[Dict[str, str]]) -> Dict[str, List[Dict[str, str]]]:
         """
         Группирует сотрудников по подразделениям
         
@@ -64,7 +64,7 @@ class FileManager:
             employees: список сотрудников
             
         Returns:
-            Dict[str, List[Employee]]: словарь {подразделение: [сотрудники]}
+            Dict[str, List[Dict[str, str]]]: словарь {подразделение: [сотрудники]}
         """
         try:
             departments = {}
@@ -114,7 +114,7 @@ class FileManager:
             self.logger.error(f"Ошибка создания выходной папки: {e}")
             raise
     
-    def create_or_use_department_structure(self, output_dir: str, employees: List[Employee]) -> Dict[str, str]:
+    def create_or_use_department_structure(self, output_dir: str, employees: List[Dict[str, str]]) -> Dict[str, str]:
         """
         Создает структуру папок по подразделениям или использует существующие
         ВАЖНО: НЕ ИЗМЕНЯЕТ СТРУКТУРУ ФАЙЛОВ, только создает недостающие папки
@@ -158,7 +158,7 @@ class FileManager:
             self.logger.error(f"Ошибка подготовки структуры подразделений: {e}")
             raise
     
-    def create_department_structure(self, output_dir: str, employees: List[Employee]) -> Dict[str, str]:
+    def create_department_structure(self, output_dir: str, employees: List[Dict[str, str]]) -> Dict[str, str]:
         """
         Создает структуру папок по подразделениям
         
@@ -194,7 +194,7 @@ class FileManager:
     
     def create_employee_files_with_skip(
         self, 
-        employees: List[Employee], 
+        employees: List[Dict[str, str]], 
         departments: Dict[str, str],
         progress_callback: Optional[Callable[[int, int, str], None]] = None,
         department_progress_callback: Optional[Callable[[int, int, str], None]] = None
@@ -284,7 +284,7 @@ class FileManager:
     
     def create_employee_files(
         self, 
-        employees: List[Employee], 
+        employees: List[Dict[str, str]], 
         departments: Dict[str, str],
         progress_callback: Optional[Callable[[int, int, str], None]] = None,
         department_progress_callback: Optional[Callable[[int, int, str], None]] = None

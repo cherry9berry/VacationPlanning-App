@@ -6,7 +6,7 @@
 
 import logging
 from pathlib import Path
-from typing import List, Tuple, Optional, Dict
+from typing import List, Tuple, Optional, Dict, Any, Union
 import re
 
 import openpyxl
@@ -23,12 +23,12 @@ class Validator:
         self.config = config
         self.logger = logging.getLogger(__name__)
     
-    def validate_staff_file(self, file_path: str) -> Tuple[ValidationResult, List[Employee]]:
+    def validate_staff_file(self, file_path: str) -> Tuple[ValidationResult, List[Dict[str, str]]]:
         """
         Валидирует файл штатного расписания
         
         Returns:
-            Tuple[ValidationResult, List[Employee]]: результат валидации и список сотрудников
+            Tuple[ValidationResult, List[Dict[str, str]]]: результат валидации и список сотрудников
         """
         result = ValidationResult()
         employees = []
@@ -92,7 +92,12 @@ class Validator:
             
             result.employee_count = len(employees)
             result.unique_tab_numbers = validation_stats['unique_tab_numbers']
-            result.processing_time = len(employees) * self.config.get("processing_time_per_file", 0.3)
+            
+            # ИСПРАВЛЕНО: Добавляем явную проверку типов и значение по умолчанию
+            processing_time_per_file = self.config.get("processing_time_per_file", 0.3)
+            if processing_time_per_file is None:
+                processing_time_per_file = 0.3
+            result.processing_time = len(employees) * float(processing_time_per_file)
             
             self.logger.info(f"Валидация завершена. Найдено сотрудников: {len(employees)}")
             
@@ -102,16 +107,16 @@ class Validator:
         
         return result, employees
     
-    def _validate_and_filter_employees(self, all_employees: List[dict], result: ValidationResult) -> Tuple[List[Employee], Dict]:
+    def _validate_and_filter_employees(self, all_employees: List[Dict[str, str]], result: ValidationResult) -> Tuple[List[Dict[str, str]], Dict[str, int]]:
         """
         ИСПРАВЛЕННАЯ ЛОГИКА: Валидирует сотрудников и исключает дублирующиеся табельные номера
         
         Returns:
-            Tuple[List[Employee], Dict]: отфильтрованный список сотрудников и статистика
+            Tuple[List[Dict[str, str]], Dict[str, int]]: отфильтрованный список сотрудников и статистика
         """
-        tab_numbers = {}
-        duplicate_tab_numbers = {}
-        valid_employees = []
+        tab_numbers: Dict[str, List[Dict[str, str]]] = {}
+        duplicate_tab_numbers: Dict[str, List[str]] = {}
+        valid_employees: List[Dict[str, str]] = []
         
         # Первый проход - выявляем дублирующиеся табельные номера
         for i, emp in enumerate(all_employees, 1):
@@ -123,19 +128,21 @@ class Validator:
                 result.add_warning(f"Строка {i}: Название подразделения слишком длинное")
             
             # Проверка табельного номера
-            if not emp.get('Табельный номер'):
+            tab_number = emp.get('Табельный номер')
+            if not tab_number:
                 result.add_error(f"Строка {i}: Пустой табельный номер")
                 continue
             
-            # Проверка формата табельного номера
-            if not re.match(r'^\d+$', emp.get('Табельный номер')):
-                result.add_warning(f"Строка {i}: Табельный номер не является числом: {emp.get('Табельный номер')}")
+            # ИСПРАВЛЕНО: Проверка формата табельного номера с проверкой на None
+            tab_number_str = str(tab_number).strip()
+            if tab_number_str and not re.match(r'^\d+$', tab_number_str):
+                result.add_warning(f"Строка {i}: Табельный номер не является числом: {tab_number_str}")
             
             # Подсчет табельных номеров
-            if emp.get('Табельный номер') in tab_numbers:
-                tab_numbers[emp.get('Табельный номер')].append(emp)
+            if tab_number_str in tab_numbers:
+                tab_numbers[tab_number_str].append(emp)
             else:
-                tab_numbers[emp.get('Табельный номер')] = [emp]
+                tab_numbers[tab_number_str] = [emp]
         
         # Второй проход - определяем какие табельные номера дублируются
         for tab_num, emp_list in tab_numbers.items():
@@ -167,17 +174,19 @@ class Validator:
         
         return valid_employees, validation_stats
     
-    def _read_employees(self, worksheet, header_row: int, header_map: dict, rules_value_fields=None) -> List[dict]:
+    def _read_employees(self, worksheet, header_row: int, header_map: Dict[str, int], rules_value_fields: Optional[List[str]] = None) -> List[Dict[str, str]]:
         """Динамически читает сотрудников по правилам rules['value'] и заголовкам исходника"""
         employees = []
         if rules_value_fields is None:
             # Если не передали список нужных полей, работаем по старой логике
             rules_value_fields = list(header_map.keys())
+        
         row_num = header_row + 1
         while True:
             row_values = self._get_row_values(worksheet, row_num)
             if not row_values or all(not val for val in row_values):
                 break
+            
             employee_data = {}
             for field in rules_value_fields:
                 col_idx = header_map.get(field)
@@ -185,13 +194,18 @@ class Validator:
                 if value is None:
                     value = ''
                 employee_data[field] = str(value).strip()
-            # Добавляем только если есть обязательные поля (например, ФИО работника, Табельный номер, Подразделение 1)
-            if employee_data.get('ФИО работника') and employee_data.get('Табельный номер') and employee_data.get('Подразделение 1'):
+            
+            # Добавляем только если есть обязательные поля
+            if (employee_data.get('ФИО работника') and 
+                employee_data.get('Табельный номер') and 
+                employee_data.get('Подразделение 1')):
                 employees.append(employee_data)
+            
             row_num += 1
+        
         return employees
     
-    def _get_row_values(self, worksheet, row_num: int) -> List:
+    def _get_row_values(self, worksheet, row_num: int) -> List[Any]:
         """Получает значения строки из листа Excel"""
         try:
             row = list(worksheet.iter_rows(min_row=row_num, max_row=row_num, values_only=True))[0]
@@ -199,12 +213,12 @@ class Validator:
         except (IndexError, AttributeError):
             return []
     
-    def _count_unique_tab_numbers(self, employees: List[Employee]) -> int:
+    def _count_unique_tab_numbers(self, employees: List[Dict[str, str]]) -> int:
         """Подсчитывает количество уникальных табельных номеров"""
         unique_tabs = set()
         for emp in employees:
-            if emp.tab_number:
-                unique_tabs.add(emp.tab_number)
+            if emp.get('Табельный номер'):
+                unique_tabs.add(emp['Табельный номер'])
         return len(unique_tabs)
     
     def validate_templates(self) -> ValidationResult:

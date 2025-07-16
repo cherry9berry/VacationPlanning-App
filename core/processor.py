@@ -18,6 +18,7 @@ from config import Config
 from core.validator import Validator
 from core.excel_handler import ExcelHandler
 from core.file_manager import FileManager
+from core.performance_tracker import PerformanceTracker
 
 import shutil
 import re
@@ -32,6 +33,7 @@ class VacationProcessor:
         self.validator = Validator(config)
         self.excel_handler = ExcelHandler(config)
         self.file_manager = FileManager(config)
+        self.performance_tracker = PerformanceTracker()
 
     def create_employee_files_to_existing(
             self, 
@@ -44,7 +46,6 @@ class VacationProcessor:
             """
             Создает файлы сотрудников в существующей папке
             """
-            print("=== DEBUG PROCESSOR: Метод create_employee_files_to_existing вызван ===")
             operation_log = OperationLog("Создание файлов сотрудников в существующей структуре")
             operation_log.add_entry("INFO", "Начало создания файлов сотрудников")
             
@@ -55,20 +56,17 @@ class VacationProcessor:
                     start_time=start_time
                 )
                 
-                print("=== DEBUG PROCESSOR: Создан прогресс ===")
                 if progress_callback:
-                    print("=== DEBUG PROCESSOR: Вызываем progress_callback ===")
                     progress_callback(progress)
                 
                 # 1. Валидация файла штатного расписания
-                print("=== DEBUG PROCESSOR: Начинаем валидацию ===")
                 progress.current_operation = "Валидация файла штатного расписания"
                 progress.current_file = Path(staff_file_path).name
                 if progress_callback:
                     progress_callback(progress)
                 
                 validation_result, employees = self.validator.validate_staff_file(staff_file_path)
-                print(f"=== DEBUG PROCESSOR: Валидация завершена, найдено {len(employees)} сотрудников ===")
+                self.logger.info(f"Валидация завершена, найдено {len(employees)} сотрудников")
                 
                 if not validation_result.is_valid:
                     operation_log.add_entry("ERROR", f"Валидация не пройдена: {validation_result.errors}")
@@ -78,22 +76,22 @@ class VacationProcessor:
                 operation_log.add_entry("INFO", f"Валидация пройдена. Найдено сотрудников: {len(employees)}")
                 
                 # 2. Группировка сотрудников по отделам
-                print("=== DEBUG PROCESSOR: Группируем сотрудников ===")
+                self.logger.debug("Группируем сотрудников")
                 progress.current_operation = "Группировка сотрудников по отделам"
                 if progress_callback:
                     progress_callback(progress)
                 
                 employees_by_dept = self.file_manager.group_employees_by_department(employees)
-                print(f"=== DEBUG PROCESSOR: Сгруппировано по {len(employees_by_dept)} отделам ===")
+                self.logger.debug(f"Сгруппировано по {len(employees_by_dept)} отделам")
                 
                 # 3. Создание структуры папок
-                print("=== DEBUG PROCESSOR: Создаем структуру папок ===")
+                self.logger.debug("Создаем структуру папок")
                 progress.current_operation = "Подготовка структуры папок"
                 if progress_callback:
                     progress_callback(progress)
                 
                 departments = self.file_manager.create_or_use_department_structure(target_directory, employees)
-                print(f"=== DEBUG PROCESSOR: Создано {len(departments)} папок отделов ===")
+                self.logger.debug(f"Создано {len(departments)} папок отделов")
                 
                 # 4. Подготовка прогресса
                 total_departments = len(employees_by_dept)
@@ -104,25 +102,26 @@ class VacationProcessor:
                 progress.processed_blocks = 0
                 progress.processed_files = 0
                 
-                print(f"=== DEBUG PROCESSOR: Подготовлено {total_departments} отделов, {total_employees} сотрудников ===")
+                self.logger.debug(f"Подготовлено {total_departments} отделов, {total_employees} сотрудников")
                 if progress_callback:
                     progress_callback(progress)
                 
-                # 5. Создание файлов по отделам
-                print("=== DEBUG PROCESSOR: Начинаем создание файлов ===")
+                # 5. Начинаем отслеживание производительности
+                self.excel_handler.performance_tracker.start_batch()
+                
+                # 6. Создание файлов по отделам
+                self.logger.debug("Начинаем создание файлов")
                 total_success_count = 0
                 total_skipped_count = 0
                 total_error_count = 0
                 
                 for dept_idx, (dept_name, dept_employees) in enumerate(employees_by_dept.items()):
-                    print(f"=== DEBUG PROCESSOR: Обрабатываем отдел {dept_idx+1}/{total_departments}: {dept_name} ({len(dept_employees)} сотр.) ===")
                     
                     progress.current_operation = f"Обработка отдела: {dept_name}"
                     progress.current_block = dept_name
                     progress.processed_blocks = dept_idx
                     
                     if department_progress_callback:
-                        print(f"=== DEBUG PROCESSOR: Вызываем department_progress_callback({dept_idx}, {total_departments}, {dept_name}) ===")
                         department_progress_callback(dept_idx, total_departments, dept_name)
                     
                     if progress_callback:
@@ -130,11 +129,9 @@ class VacationProcessor:
                     
                     dept_path = departments.get(dept_name)
                     if not dept_path:
-                        print(f"=== DEBUG PROCESSOR: ОШИБКА - Папка для отдела {dept_name} не найдена ===")
                         operation_log.add_entry("ERROR", f"Папка для отдела {dept_name} не найдена")
                         continue
                     
-                    print(f"=== DEBUG PROCESSOR: Папка отдела: {dept_path} ===")
                     
                     # Счетчики для текущего отдела
                     dept_success_count = 0
@@ -143,33 +140,27 @@ class VacationProcessor:
                     
                     # Обрабатываем сотрудников в текущем отделе
                     for emp_idx, employee in enumerate(dept_employees):
-                        print(f"=== DEBUG PROCESSOR: Обрабатываем сотрудника {emp_idx+1}/{len(dept_employees)}: {employee['ФИО работника']} ===")
-                        
                         try:
                             # Генерируем имя файла
                             filename = self.excel_handler.generate_output_filename(employee)
                             output_path = Path(dept_path) / filename
                             
-                            print(f"=== DEBUG PROCESSOR: Файл: {output_path} ===")
-                            
                             # Проверяем существование файла
                             if output_path.exists():
-                                print(f"=== DEBUG PROCESSOR: Файл существует, пропускаем ===")
                                 dept_skipped_count += 1
                                 total_skipped_count += 1
                                 message = f"Пропущен (уже существует): {employee['ФИО работника']}"
+                                # Отмечаем файл как пропущенный в трекере
+                                self.excel_handler.performance_tracker.skip_file(employee['ФИО работника'])
                             else:
-                                print(f"=== DEBUG PROCESSOR: Создаем файл сотрудника ===")
                                 # Создаем файл сотрудника
                                 success = self.excel_handler.create_employee_file(employee, str(output_path))
                                 
                                 if success:
-                                    print(f"=== DEBUG PROCESSOR: Файл создан успешно ===")
                                     dept_success_count += 1
                                     total_success_count += 1
                                     message = f"Создан: {employee['ФИО работника']}"
                                 else:
-                                    print(f"=== DEBUG PROCESSOR: ОШИБКА создания файла ===")
                                     dept_error_count += 1
                                     total_error_count += 1
                                     message = f"Ошибка создания: {employee['ФИО работника']}"
@@ -178,18 +169,16 @@ class VacationProcessor:
                             
                             # Обновляем прогресс по файлам в отделе
                             if file_progress_callback:
-                                print(f"=== DEBUG PROCESSOR: Вызываем file_progress_callback({emp_idx + 1}, {len(dept_employees)}, {message}) ===")
                                 file_progress_callback(emp_idx + 1, len(dept_employees), message)
                             
                             # Обновляем общий прогресс
                             if progress_callback:
                                 progress_callback(progress)
                             
-                            # Небольшая задержка для демонстрации прогресса
-                            time.sleep(0.05)
+                            # Минимальная задержка для обновления UI
+                            time.sleep(0.001)
                             
                         except Exception as e:
-                            print(f"=== DEBUG PROCESSOR: ИСКЛЮЧЕНИЕ при обработке сотрудника {employee['ФИО работника']}: {e} ===")
                             dept_error_count += 1
                             total_error_count += 1
                             self.logger.error(f"Ошибка создания файла для {employee['ФИО работника']}: {e}")
@@ -202,7 +191,6 @@ class VacationProcessor:
                                 progress_callback(progress)
                     
                     # Логируем результаты по отделу
-                    print(f"=== DEBUG PROCESSOR: Отдел {dept_name} завершен: создано {dept_success_count}, пропущено {dept_skipped_count}, ошибок {dept_error_count} ===")
                     if dept_success_count > 0 or dept_skipped_count > 0 or dept_error_count > 0:
                         operation_log.add_entry("INFO", f"Отдел {dept_name}: создано {dept_success_count}, пропущено {dept_skipped_count}")
                     
@@ -211,8 +199,6 @@ class VacationProcessor:
                     
                     if department_progress_callback:
                         department_progress_callback(dept_idx + 1, total_departments, dept_name)
-                
-                print("=== DEBUG PROCESSOR: Все отделы обработаны, завершаем ===")
                 
                 # 6. Завершение
                 end_time = datetime.now()
@@ -223,6 +209,9 @@ class VacationProcessor:
                 if progress_callback:
                     progress_callback(progress)
                 
+                # Получаем отчет о производительности
+                performance_report = self.excel_handler.performance_tracker.finish_batch()
+                
                 # Итоговая статистика
                 operation_log.add_entry("INFO", f"Создание файлов завершено")
                 operation_log.add_entry("INFO", f"Успешно создано: {total_success_count} файлов")
@@ -231,16 +220,24 @@ class VacationProcessor:
                 if total_error_count > 0:
                     operation_log.add_entry("WARNING", f"Ошибок при создании: {total_error_count} файлов")
                 
+                # Добавляем статистику производительности
+                operation_log.add_entry("INFO", f"Время выполнения: {duration}")
+                operation_log.add_entry("INFO", f"Среднее время на файл: {performance_report.average_duration_per_file:.2f}с")
+                
+                # Выводим подробный отчет о производительности в консоль
+                print("\n" + performance_report.format_report())
+                
+                # Очищаем кэш для освобождения памяти
+                self.excel_handler.clear_cache()
+                
                 operation_log.add_entry("INFO", f"Время выполнения: {duration.total_seconds():.1f} сек")
                 operation_log.finish(ProcessingStatus.SUCCESS)
                 
-                print(f"=== DEBUG PROCESSOR: Завершено успешно: {total_success_count} создано, {total_skipped_count} пропущено, {total_error_count} ошибок ===")
                 self.logger.info(f"Создание файлов завершено: {total_success_count} создано, {total_skipped_count} пропущено, {total_error_count} ошибок")
                 
                 return operation_log
                 
             except Exception as e:
-                print(f"=== DEBUG PROCESSOR: КРИТИЧЕСКАЯ ОШИБКА: {e} ===")
                 import traceback
                 traceback.print_exc()
                 
