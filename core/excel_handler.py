@@ -21,11 +21,6 @@ from config import Config
 class ExcelHandler:
     """Класс для работы с Excel файлами"""
     
-    # Константы для 2026 года (не високосный)
-    DAYS_IN_MONTH_2026 = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
-    MONTH_NAMES = ['Январь', 'Февраль', 'Март', 'Апрель', 'Май', 'Июнь', 
-                   'Июль', 'Август', 'Сентябрь', 'Октябрь', 'Ноябрь', 'Декабрь']
-    
     def __init__(self, config: Config):
         self.config = config
         self.logger = logging.getLogger(__name__)
@@ -130,53 +125,184 @@ class ExcelHandler:
                 self._fill_cell_or_range(workbook, sheet_name, clean_address, value)
 
     def create_employee_file(self, employee: Employee, output_path: str) -> bool:
-        """Создает файл сотрудника на основе шаблона с rules"""
-        template_path = Path(self.config.employee_template)
-        if not template_path.exists():
-            raise FileNotFoundError(f"Шаблон сотрудника не найден: {template_path}")
-        
-        Path(output_path).parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(template_path, output_path)
-        
-        rules = self._load_filling_rules(str(template_path))
-        
-        employee_data = {
-            'ФИО работника': employee.full_name,
-            'Табельный номер': employee.tab_number,
-            'Должность': getattr(employee, 'position', ''),
-            'Подразделение 1': employee.department1,
-            'Подразделение 2': employee.department2,
-            'Подразделение 3': employee.department3,
-            'Подразделение 4': employee.department4,
-            'Локация': getattr(employee, 'location', ''),
-            'Остатки отпуска': getattr(employee, 'vacation_remainder', ''),
-            'Дата приема': getattr(employee, 'hire_date', ''),
-            'Дата отсечки периода': getattr(employee, 'period_cutoff_date', ''),
-            'Дополнительный отпуск НРД': getattr(employee, 'additional_vacation_nrd', ''),
-            'Дополнительный отпуск Северный': getattr(employee, 'additional_vacation_north', '')
-        }
-        
-        workbook = openpyxl.load_workbook(output_path)
-        self._apply_rules_to_template(workbook, rules, employee_data)
-        workbook.save(output_path)
-        workbook.close()
-        
-        return True
+            """Создает файл сотрудника на основе шаблона с rules"""
+            print(f"=== DEBUG EXCEL: create_employee_file вызван для {employee.full_name} ===")
+            print(f"=== DEBUG EXCEL: output_path = {output_path} ===")
+            
+            template_path = Path(self.config.employee_template)
+            print(f"=== DEBUG EXCEL: template_path = {template_path} ===")
+            
+            if not template_path.exists():
+                print(f"=== DEBUG EXCEL: ОШИБКА - Шаблон не найден: {template_path} ===")
+                raise FileNotFoundError(f"Шаблон сотрудника не найден: {template_path}")
+            
+            print(f"=== DEBUG EXCEL: Создаем папку для файла ===")
+            Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+            
+            print(f"=== DEBUG EXCEL: Копируем шаблон ===")
+            shutil.copy2(template_path, output_path)
+            
+            print(f"=== DEBUG EXCEL: Загружаем rules из шаблона ===")
+            try:
+                rules = self._load_filling_rules(str(template_path))
+                print(f"=== DEBUG EXCEL: Rules загружены: {len(rules)} типов ===")
+            except Exception as e:
+                print(f"=== DEBUG EXCEL: ОШИБКА при загрузке rules: {e} ===")
+                import traceback
+                traceback.print_exc()
+                return False
+            
+            print(f"=== DEBUG EXCEL: Подготавливаем данные сотрудника ===")
+            employee_data = {
+                'ФИО работника': employee.full_name,
+                'Табельный номер': employee.tab_number,
+                'Должность': getattr(employee, 'position', ''),
+                'Подразделение 1': employee.department1,
+                'Подразделение 2': employee.department2,
+                'Подразделение 3': employee.department3,
+                'Подразделение 4': employee.department4,
+                'Локация': getattr(employee, 'location', ''),
+                'Остатки отпуска': getattr(employee, 'vacation_remainder', ''),
+                'Дата приема': getattr(employee, 'hire_date', ''),
+                'Дата отсечки периода': getattr(employee, 'period_cutoff_date', ''),
+                'Дополнительный отпуск НРД': getattr(employee, 'additional_vacation_nrd', ''),
+                'Дополнительный отпуск Северный': getattr(employee, 'additional_vacation_north', '')
+            }
+            
+            print(f"=== DEBUG EXCEL: Открываем файл для заполнения ===")
+            try:
+                workbook = openpyxl.load_workbook(output_path)
+                print(f"=== DEBUG EXCEL: Файл открыт успешно ===")
+            except Exception as e:
+                print(f"=== DEBUG EXCEL: ОШИБКА при открытии файла: {e} ===")
+                return False
+            
+            print(f"=== DEBUG EXCEL: Применяем rules к шаблону ===")
+            try:
+                self._apply_rules_to_template(workbook, rules, employee_data)
+                print(f"=== DEBUG EXCEL: Rules применены успешно ===")
+            except Exception as e:
+                print(f"=== DEBUG EXCEL: ОШИБКА при применении rules: {e} ===")
+                import traceback
+                traceback.print_exc()
+                workbook.close()
+                return False
+            
+            print(f"=== DEBUG EXCEL: Сохраняем файл ===")
+            try:
+                workbook.save(output_path)
+                print(f"=== DEBUG EXCEL: Файл сохранен успешно ===")
+            except Exception as e:
+                print(f"=== DEBUG EXCEL: ОШИБКА при сохранении файла: {e} ===")
+                import traceback
+                traceback.print_exc()
+                workbook.close()
+                return False
+            
+            print(f"=== DEBUG EXCEL: Закрываем файл ===")
+            workbook.close()
+            
+            print(f"=== DEBUG EXCEL: create_employee_file завершен успешно ===")
+            return True
+
+    def _load_filling_rules(self, template_path: str) -> Dict[str, Dict[str, str]]:
+            """Загружает правила заполнения из листа 'rules' (ОПТИМИЗИРОВАННО)"""
+            print(f"=== DEBUG EXCEL: _load_filling_rules вызван для {template_path} ===")
+            
+            rules = {'value': {}, 'header': {}, 'read': {}}
+            
+            try:
+                print(f"=== DEBUG EXCEL: Открываем шаблон (только лист rules) ===")
+                
+                # ОПТИМИЗАЦИЯ: Читаем только нужные листы
+                workbook = openpyxl.load_workbook(
+                    template_path, 
+                    data_only=True, 
+                    read_only=True,
+                    keep_links=False  # Не читать внешние ссылки
+                )
+                print(f"=== DEBUG EXCEL: Шаблон открыт ===")
+                
+                print(f"=== DEBUG EXCEL: Листы в файле: {workbook.sheetnames} ===")
+                
+                if 'rules' not in workbook.sheetnames:
+                    print(f"=== DEBUG EXCEL: ВНИМАНИЕ - Лист 'rules' не найден ===")
+                    workbook.close()
+                    return rules
+                
+                print(f"=== DEBUG EXCEL: Читаем лист rules ===")
+                rules_sheet = workbook['rules']
+                
+                # ОПТИМИЗАЦИЯ: Читаем только нужную область (A1:C100)
+                print(f"=== DEBUG EXCEL: Читаем область A1:C100 ===")
+                
+                rules_count = 0
+                
+                # Читаем построчно только первые 3 столбца и первые 100 строк
+                for row in range(2, 101):  # Строки 2-100
+                    try:
+                        # Читаем только нужные ячейки
+                        source_val = rules_sheet.cell(row=row, column=1).value  # A
+                        target_val = rules_sheet.cell(row=row, column=2).value  # B  
+                        type_val = rules_sheet.cell(row=row, column=3).value    # C
+                        
+                        # Если все 3 ячейки пустые - прерываем чтение
+                        if not source_val and not target_val and not type_val:
+                            break
+                        
+                        if source_val and target_val and type_val:
+                            source_address = str(source_val).strip()
+                            target_field = str(target_val).strip()
+                            rule_type = str(type_val).strip().lower()
+                            
+                            if rule_type in ['value', 'header', 'read']:
+                                rules[rule_type][source_address] = target_field
+                                rules_count += 1
+                                
+                                if rules_count % 10 == 0:
+                                    print(f"=== DEBUG EXCEL: Обработано {rules_count} правил ===")
+                    
+                    except Exception as e:
+                        print(f"=== DEBUG EXCEL: Ошибка в строке {row}: {e} ===")
+                        continue
+                
+                print(f"=== DEBUG EXCEL: Загружено {rules_count} правил ===")
+                workbook.close()
+                
+                return rules
+                
+            except Exception as e:
+                print(f"=== DEBUG EXCEL: ОШИБКА в _load_filling_rules: {e} ===")
+                import traceback
+                traceback.print_exc()
+                
+                # Возвращаем пустые правила
+                print(f"=== DEBUG EXCEL: Возвращаем пустые правила ===")
+                return {'value': {}, 'header': {}, 'read': {}}
 
     def read_vacation_info_from_file(self, file_path: str) -> Optional[VacationInfo]:
         """Читает информацию об отпусках из файла сотрудника"""
         try:
             workbook = openpyxl.load_workbook(file_path, data_only=True)
-            worksheet = workbook.active
+            
+            # Получаем структуру из конфига
+            file_structure = self.config.employee_file_structure
+            sheet_index = file_structure.get("active_sheet_index", 0)
+            worksheet = workbook.worksheets[sheet_index]
             
             employee = Employee()
-            employee.file_path = file_path  # Сохраняем путь к файлу для чтения статуса
+            employee.file_path = file_path
+            
+            # Читаем данные сотрудника из конфига
+            data_rows = file_structure.get("employee_data_rows", {"start": 15, "end": 29})
+            emp_columns = file_structure.get("employee_columns", {})
+            dept_cells = file_structure.get("department_cells", {})
             
             # Ищем первую заполненную строку для базовой информации
-            for row in range(9, 24):
-                tab_number = self._get_cell_value(worksheet, f"B{row}")
-                full_name = self._get_cell_value(worksheet, f"C{row}")
-                position = self._get_cell_value(worksheet, f"D{row}")
+            for row in range(data_rows["start"], data_rows["end"] + 1):
+                tab_number = self._get_cell_value(worksheet, f"{emp_columns.get('tab_number', 'B')}{row}")
+                full_name = self._get_cell_value(worksheet, f"{emp_columns.get('full_name', 'C')}{row}")
+                position = self._get_cell_value(worksheet, f"{emp_columns.get('position', 'D')}{row}")
                 
                 if tab_number and full_name:
                     employee.tab_number = str(tab_number).strip()
@@ -186,17 +312,19 @@ class ExcelHandler:
                     break
             
             # Читаем подразделения из шапки файла
-            employee.department1 = str(self._get_cell_value(worksheet, "C2") or "").strip()
-            employee.department2 = str(self._get_cell_value(worksheet, "C3") or "").strip()
-            employee.department3 = str(self._get_cell_value(worksheet, "C4") or "").strip()
-            employee.department4 = str(self._get_cell_value(worksheet, "C5") or "").strip()
+            employee.department1 = str(self._get_cell_value(worksheet, dept_cells.get("department1", "C2")) or "").strip()
+            employee.department2 = str(self._get_cell_value(worksheet, dept_cells.get("department2", "C3")) or "").strip()
+            employee.department3 = str(self._get_cell_value(worksheet, dept_cells.get("department3", "C4")) or "").strip()
+            employee.department4 = str(self._get_cell_value(worksheet, dept_cells.get("department4", "C5")) or "").strip()
             
             # Читаем периоды отпусков
+            vacation_columns = file_structure.get("vacation_columns", {})
             periods = []
-            for row in range(9, 24):
-                start_date_value = self._get_cell_value(worksheet, f"E{row}")
-                end_date_value = self._get_cell_value(worksheet, f"F{row}")
-                days_value = self._get_cell_value(worksheet, f"G{row}")
+            
+            for row in range(data_rows["start"], data_rows["end"] + 1):
+                start_date_value = self._get_cell_value(worksheet, f"{vacation_columns.get('start_date', 'E')}{row}")
+                end_date_value = self._get_cell_value(worksheet, f"{vacation_columns.get('end_date', 'F')}{row}")
+                days_value = self._get_cell_value(worksheet, f"{vacation_columns.get('days', 'G')}{row}")
                 
                 if not start_date_value or not end_date_value:
                     continue
@@ -215,27 +343,33 @@ class ExcelHandler:
                     self.logger.warning(f"Ошибка обработки периода в строке {row}: {e}")
                     continue
             
-            # Читаем результаты валидации
-            validation_errors = []
-            validation_h2 = str(self._get_cell_value(worksheet, "H2") or "").strip()
-            validation_i2 = str(self._get_cell_value(worksheet, "I2") or "").strip()
-            validation_j2 = self._get_cell_value(worksheet, "J2") or 0
+            # Читаем статус из B12 (новая логика)
+            status_cell = file_structure.get("status_cell", "B12")
+            status_value = self._get_cell_value(worksheet, status_cell)
+            status_text = str(status_value).strip() if status_value else ""
             
-            if "ОШИБКА" in validation_h2:
-                validation_errors.append(validation_h2)
-            if "ОШИБКА" in validation_i2:
-                validation_errors.append(validation_i2)
+            # Определяем статус на основе значения в B12
+            statuses = self.config.validation_statuses
+            if status_text == statuses["not_filled"]:
+                vacation_status = VacationStatus.NOT_FILLED
+            elif status_text == statuses["filled_correct"]:
+                vacation_status = VacationStatus.FILLED_CORRECT
+            elif status_text == statuses["filled_incorrect"]:
+                vacation_status = VacationStatus.FILLED_INCORRECT
+            else:
+                # Если статус не распознан, пытаемся определить по содержимому
+                if not periods:
+                    vacation_status = VacationStatus.NOT_FILLED
+                elif "некорректно" in status_text.lower() or "ошибка" in status_text.lower():
+                    vacation_status = VacationStatus.FILLED_INCORRECT
+                else:
+                    vacation_status = VacationStatus.FILLED_INCORRECT  # По умолчанию
             
-            try:
-                total_days = int(validation_j2) if validation_j2 else 0
-                if total_days < 28:
-                    validation_errors.append(f"ОШИБКА: Недостаточно дней отпуска. Запланировано {total_days} дней, требуется минимум 28.")
-            except (ValueError, TypeError):
-                validation_errors.append("ОШИБКА: Не удалось определить общее количество дней отпуска.")
+            vacation_info = VacationInfo(employee=employee, periods=periods, status=vacation_status)
             
-            vacation_info = VacationInfo(employee=employee, periods=periods)
-            vacation_info.validation_errors = validation_errors
-            vacation_info.status = VacationStatus.OK if not validation_errors else VacationStatus.ERROR
+            # Для отладки сохраняем текст статуса
+            if status_text and vacation_status != VacationStatus.FILLED_CORRECT:
+                vacation_info.validation_errors = [status_text]
             
             workbook.close()
             return vacation_info
@@ -273,27 +407,32 @@ class ExcelHandler:
         current_time = datetime.now()
         total_employees = len(vacation_infos)
         
-        # Правильная логика подсчета на основе статусов из файлов сотрудников
-        employees_filled = 0  # Статус НЕ "Форма не заполнена"
-        employees_correct = 0  # Статус "Форма заполнена корректно"
+        # Новая логика подсчета на основе 3 статусов
+        not_filled_count = 0      # "Форма не заполнена"
+        filled_incorrect_count = 0  # "Форма заполнена некорректно"
+        filled_correct_count = 0    # "Форма заполнена корректно"
+        
+        statuses = self.config.validation_statuses
         
         for vi in vacation_infos:
-            # Читаем статус из файла сотрудника используя read rules
-            employee_status = self._read_employee_status(vi, rules)
-            
-            if employee_status and employee_status != "Форма не заполнена":
-                employees_filled += 1
-                
-            if employee_status == "Форма заполнена корректно":
-                employees_correct += 1
+            if vi.status == VacationStatus.NOT_FILLED:
+                not_filled_count += 1
+            elif vi.status == VacationStatus.FILLED_INCORRECT:
+                filled_incorrect_count += 1
+            elif vi.status == VacationStatus.FILLED_CORRECT:
+                filled_correct_count += 1
         
-        # Данные для заполнения - только значения без заголовков
+        # Для совместимости с шаблонами считаем:
+        employees_filled = filled_incorrect_count + filled_correct_count  # Все кроме "не заполнена"
+        employees_correct = filled_correct_count  # Только корректно заполненные
+        
+        # Данные для заполнения
         report_data = {
             'block_name': block_name,
-            'update_date': current_time.strftime('%d.%m.%Y %H:%M'),  # Только время
-            'total_employees': str(total_employees),  # Только цифра
-            'employees_filled': str(employees_filled),  # Только цифра
-            'employees_correct': str(employees_correct),  # Только цифра
+            'update_date': current_time.strftime('%d.%m.%Y %H:%M'),
+            'total_employees': str(total_employees),
+            'employees_filled': str(employees_filled),
+            'employees_correct': str(employees_correct),
         }
         
         # Применяем rules
@@ -305,39 +444,6 @@ class ExcelHandler:
         # Заполняем календарь на Report листе
         if 'Report' in workbook.sheetnames:
             self._fill_calendar_matrix(workbook['Report'], vacation_infos)
-
-    def _read_employee_status(self, vacation_info: VacationInfo, rules: Dict[str, Dict[str, str]]) -> Optional[str]:
-        """Читает статус сотрудника из его файла используя read rules"""
-        if not vacation_info.employee.file_path:
-            return None
-            
-        try:
-            # Ищем правило для чтения статуса
-            read_rules = rules.get('read', {})
-            status_cell = None
-            
-            for cell_address, field_name in read_rules.items():
-                if field_name == 'report_status':
-                    # Парсим адрес ячейки для чтения статуса
-                    is_formula, clean_address, sheet_name = self._parse_cell_address(cell_address)
-                    status_cell = clean_address
-                    break
-            
-            if not status_cell:
-                return None
-            
-            # Читаем статус из файла сотрудника
-            workbook = openpyxl.load_workbook(vacation_info.employee.file_path, data_only=True)
-            worksheet = workbook.active
-            
-            status_value = self._get_cell_value(worksheet, status_cell)
-            workbook.close()
-            
-            return str(status_value).strip() if status_value else None
-            
-        except Exception as e:
-            self.logger.warning(f"Ошибка чтения статуса для {vacation_info.employee.full_name}: {e}")
-            return None
 
     def _fill_employee_tables(self, workbook, vacation_infos: List[VacationInfo], rules: Dict[str, Dict[str, str]]):
         """Заполняет таблицы сотрудников на Report и Print листах"""
@@ -355,9 +461,12 @@ class ExcelHandler:
         """Универсальная функция заполнения таблицы по префиксу"""
         header_rules = rules.get('header', {})
         column_mapping = {}
-        base_row = 9
         
-        # Определяем mapping столбцов и базовую строку
+        # Получаем структуру из конфига
+        report_structure = self.config.report_structure
+        base_row = report_structure.get("employee_data_start_row", 9)
+        
+        # Определяем mapping столбцов
         for cell_address, field_name in header_rules.items():
             if field_name.startswith(prefix):
                 try:
@@ -387,6 +496,16 @@ class ExcelHandler:
     def _get_report_row_data(self, vacation_info: VacationInfo, index: int) -> Dict[str, any]:
         """Возвращает данные строки для Report листа"""
         emp = vacation_info.employee
+        
+        # Определяем текст статуса для отображения
+        if vacation_info.status == VacationStatus.FILLED_CORRECT:
+            status_text = "Ок"
+        elif vacation_info.status == VacationStatus.NOT_FILLED:
+            status_text = "Не заполнено"
+        else:  # FILLED_INCORRECT
+            # Показываем ошибки если есть, иначе общий текст
+            status_text = "\n".join(vacation_info.validation_errors) if vacation_info.validation_errors else "Заполнено с ошибками"
+        
         return {
             'row_number': index + 1,
             'employee_name': emp.full_name,
@@ -396,7 +515,7 @@ class ExcelHandler:
             'department2': emp.department2,
             'department3': emp.department3,
             'department4': emp.department4,
-            'status': "Ок" if vacation_info.status == VacationStatus.OK else "\n".join(getattr(vacation_info, 'validation_errors', []) or ["Ошибка"]),
+            'status': status_text,
             'total_days': vacation_info.total_days,
             'periods_count': vacation_info.periods_count
         }
@@ -436,32 +555,45 @@ class ExcelHandler:
         thin_border = Border(left=Side(style='thin'), right=Side(style='thin'), 
                            top=Side(style='thin'), bottom=Side(style='thin'))
         
-        for row in range(9, 9 + data_count):
+        report_structure = self.config.report_structure
+        start_row = report_structure.get("employee_data_start_row", 9)
+        
+        for row in range(start_row, start_row + data_count):
             for col in range(1, 11):  # A-J
                 worksheet.cell(row=row, column=col).border = thin_border
 
     def _fill_calendar_matrix(self, worksheet, vacation_infos: List[VacationInfo]):
         """Заполняет календарную матрицу"""
-        start_col = 12
-        col_offset = 0
+        # Получаем параметры из конфига
+        report_structure = self.config.report_structure
+        start_col = report_structure.get("calendar_start_col", 12)
+        month_row = report_structure.get("calendar_month_row", 7)
+        day_row = report_structure.get("calendar_day_row", 8)
+        employee_start_row = report_structure.get("employee_data_start_row", 9)
         
-        for month_idx, month_name in enumerate(self.MONTH_NAMES):
+        # Получаем данные календаря из конфига
+        month_names = self.config.month_names
+        days_in_months = self.config.days_in_months
+        target_year = self.config.target_year
+        
+        col_offset = 0
+        for month_idx, month_name in enumerate(month_names):
             month_col = start_col + col_offset
-            worksheet.cell(row=7, column=month_col, value=month_name)
+            worksheet.cell(row=month_row, column=month_col, value=month_name)
             
-            days_in_month = self.DAYS_IN_MONTH_2026[month_idx]
+            days_in_month = days_in_months[month_idx]
             for day in range(1, days_in_month + 1):
                 day_col = start_col + col_offset + day - 1
-                worksheet.cell(row=8, column=day_col, value=day)
+                worksheet.cell(row=day_row, column=day_col, value=day)
             
             col_offset += days_in_month
         
         for emp_idx, vacation_info in enumerate(vacation_infos):
-            emp_row = emp_idx + 9
+            emp_row = employee_start_row + emp_idx
             for period in vacation_info.periods:
                 current_date = period.start_date
                 while current_date <= period.end_date:
-                    if current_date.year == 2026:
+                    if current_date.year == target_year:
                         day_col = self._get_calendar_column(current_date, start_col)
                         if day_col:
                             worksheet.cell(row=emp_row, column=day_col, value=1)
@@ -473,10 +605,13 @@ class ExcelHandler:
 
     def _get_calendar_column(self, target_date: date, start_col: int) -> Optional[int]:
         """Вычисляет столбец для даты в календаре"""
-        if target_date.year != 2026:
+        target_year = self.config.target_year
+        days_in_months = self.config.days_in_months
+        
+        if target_date.year != target_year:
             return None
         
-        col_offset = sum(self.DAYS_IN_MONTH_2026[:target_date.month - 1]) + target_date.day - 1
+        col_offset = sum(days_in_months[:target_date.month - 1]) + target_date.day - 1
         return start_col + col_offset
 
     def read_block_report_data(self, report_path: str) -> Optional[Dict]:
@@ -488,10 +623,14 @@ class ExcelHandler:
             
             worksheet = workbook['Report']
             
-            block_name = str(self._get_cell_value(worksheet, "A3") or "").strip()
-            update_date_raw = str(self._get_cell_value(worksheet, "A4") or "").strip()
-            total_employees_raw = str(self._get_cell_value(worksheet, "A5") or "").strip()
-            completed_raw = str(self._get_cell_value(worksheet, "A6") or "").strip()
+            # Используем структуру из конфига
+            report_structure = self.config.report_structure
+            header_cells = report_structure.get("report_header_cells", {})
+            
+            block_name = str(self._get_cell_value(worksheet, header_cells.get("block_name", "A3")) or "").strip()
+            update_date_raw = str(self._get_cell_value(worksheet, header_cells.get("update_date", "A4")) or "").strip()
+            total_employees_raw = str(self._get_cell_value(worksheet, header_cells.get("total_employees", "A5")) or "").strip()
+            completed_raw = str(self._get_cell_value(worksheet, header_cells.get("completed", "A6")) or "").strip()
             
             update_date = update_date_raw.replace("Дата обновления:", "").strip() if "Дата обновления:" in update_date_raw else ""
             
@@ -625,6 +764,3 @@ class ExcelHandler:
         
         clean_name = re.sub(r'[\\/:*?"<>|]', '_', filename).strip()
         return clean_name[:100] if len(clean_name) > 100 else clean_name or "unnamed"
-    
-
-    

@@ -55,32 +55,86 @@ class VacationInfo:
         self.has_long_period = any(period.days >= 14 for period in self.periods)
         self.validation_errors = []
         
-        # Определяем статус
-        if not self.periods:
-            self.status = "Не заполнено"
-        elif self.validation_errors:
-            self.status = "Ошибка"
-        elif self.total_days >= 28 and self.has_long_period:
-            self.status = "Ок"
-        else:
-            self.status = "Частично"
+        # Статусы теперь соответствуют новому шаблону
+        self.status = "Форма не заполнена"  # По умолчанию
+
+
+class ReportConfig:
+    """Конфигурация для создания отчетов"""
+    def __init__(self):
+        # Параметры календарного года
+        self.target_year = 2026
+        self.is_leap_year = False
+        
+        # Дни в месяцах для целевого года
+        self.days_in_months = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
+        
+        # Названия месяцев
+        self.month_names = [
+            'Январь', 'Февраль', 'Март', 'Апрель', 'Май', 'Июнь',
+            'Июль', 'Август', 'Сентябрь', 'Октябрь', 'Ноябрь', 'Декабрь'
+        ]
+        
+        # Путь к шаблону
+        self.template_path = r"M:\Подразделения\АУП\Стажерская программа\Отпуск Р7\templates\block_report_template.xlsx"
+        
+        # Структура файла сотрудника (обновлено под новый шаблон)
+        self.employee_file_structure = {
+            "active_sheet_index": 0,  # Первый лист
+            "status_cell": "B12",     # Ячейка со статусом формы
+            
+            # Данные сотрудника (новый шаблон: строки 15-29)
+            "employee_data_rows": {"start": 15, "end": 29},
+            "employee_columns": {"tab_number": "B", "full_name": "C", "position": "D"},
+            
+            # Подразделения в шапке
+            "department_cells": {"department1": "C2", "department2": "C3", "department3": "C4", "department4": "C5"},
+            
+            # Периоды отпусков
+            "vacation_columns": {"start_date": "E", "end_date": "F", "days": "G"}
+        }
+        
+        # Структура отчетов
+        self.report_structure = {
+            "calendar_start_col": 12,      # Столбец L
+            "calendar_month_row": 7,       # Строка месяцев
+            "calendar_day_row": 8,         # Строка дней
+            "employee_data_start_row": 9,  # Начальная строка данных
+            
+            # Ячейки шапки отчета
+            "report_header_cells": {
+                "block_name": "A3",
+                "update_date": "A4", 
+                "total_employees": "A5",
+                "completed": "A6"
+            },
+            
+            # Настройки Print листа
+            "print_structure": {
+                "block_name_cell": "D4",
+                "data_start_row": 9,
+                "pagination": {"first_page_records": 14, "other_pages_records": 18}
+            }
+        }
+        
+        # Статусы валидации
+        self.validation_statuses = {
+            "not_filled": "Форма не заполнена",
+            "filled_incorrect": "Форма заполнена некорректно", 
+            "filled_correct": "Форма заполнена корректно"
+        }
 
 
 class BlockReportCreator:
     """Создатель отчетов по блокам"""
     
-    # Константы для 2026 года
-    DAYS_IN_MONTH_2026 = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
-    MONTH_NAMES = ['Январь', 'Февраль', 'Март', 'Апрель', 'Май', 'Июнь', 
-                   'Июль', 'Август', 'Сентябрь', 'Октябрь', 'Ноябрь', 'Декабрь']
-    
     def __init__(self):
-        self.template_path = r"M:\Подразделения\АУП\Стажерская программа\Отпуск Р7\templates\block_report_template.xlsx"
+        self.config = ReportConfig()
         
     def validate_template(self) -> bool:
         """Проверяет наличие шаблона"""
-        if not Path(self.template_path).exists():
-            print(f"ОШИБКА: Шаблон не найден по пути: {self.template_path}")
+        if not Path(self.config.template_path).exists():
+            print(f"ОШИБКА: Шаблон не найден по пути: {self.config.template_path}")
             return False
         print(f"✓ Шаблон найден")
         return True
@@ -117,18 +171,15 @@ class BlockReportCreator:
         if not date_value:
             return None
         
-        # Если уже date или datetime
         if isinstance(date_value, date):
             return date_value
         if isinstance(date_value, datetime):
             return date_value.date()
         
-        # Если строка
         date_str = str(date_value).strip()
         if not date_str:
             return None
         
-        # Попробуем различные форматы
         formats = ["%d.%m.%Y", "%d.%m.%y", "%Y-%m-%d", "%d/%m/%Y", "%d/%m/%y"]
         
         for fmt in formats:
@@ -152,16 +203,23 @@ class BlockReportCreator:
         """Читает информацию об отпусках из файла сотрудника"""
         try:
             workbook = openpyxl.load_workbook(file_path, data_only=True)
-            worksheet = workbook.active
+            
+            # Получаем структуру из конфига
+            file_structure = self.config.employee_file_structure
+            sheet_index = file_structure["active_sheet_index"]
+            worksheet = workbook.worksheets[sheet_index]
             
             # Читаем базовую информацию о сотруднике
             employee = Employee()
             
-            # Ищем первую заполненную строку для получения базовой информации (строки 9-23)
-            for row in range(9, 24):
-                tab_number = self.get_cell_value(worksheet, f"B{row}")
-                full_name = self.get_cell_value(worksheet, f"C{row}")
-                position = self.get_cell_value(worksheet, f"D{row}")
+            # Ищем первую заполненную строку для получения базовой информации
+            data_rows = file_structure["employee_data_rows"]
+            emp_columns = file_structure["employee_columns"]
+            
+            for row in range(data_rows["start"], data_rows["end"] + 1):
+                tab_number = self.get_cell_value(worksheet, f"{emp_columns['tab_number']}{row}")
+                full_name = self.get_cell_value(worksheet, f"{emp_columns['full_name']}{row}")
+                position = self.get_cell_value(worksheet, f"{emp_columns['position']}{row}")
                 
                 if tab_number and full_name:
                     employee.tab_number = str(tab_number).strip()
@@ -170,32 +228,32 @@ class BlockReportCreator:
                         employee.position = str(position).strip()
                     break
             
-            # Читаем подразделения из шапки файла (C2:C5)
-            employee.department1 = str(self.get_cell_value(worksheet, "C2") or "").strip()
-            employee.department2 = str(self.get_cell_value(worksheet, "C3") or "").strip()
-            employee.department3 = str(self.get_cell_value(worksheet, "C4") or "").strip()
-            employee.department4 = str(self.get_cell_value(worksheet, "C5") or "").strip()
+            # Читаем подразделения из шапки файла
+            dept_cells = file_structure["department_cells"]
+            employee.department1 = str(self.get_cell_value(worksheet, dept_cells["department1"]) or "").strip()
+            employee.department2 = str(self.get_cell_value(worksheet, dept_cells["department2"]) or "").strip()
+            employee.department3 = str(self.get_cell_value(worksheet, dept_cells["department3"]) or "").strip()
+            employee.department4 = str(self.get_cell_value(worksheet, dept_cells["department4"]) or "").strip()
             
-            # Читаем периоды отпусков из строк 9-23
+            # Читаем периоды отпусков
+            vacation_columns = file_structure["vacation_columns"]
             periods = []
             
-            for row in range(9, 24):
-                start_date_value = self.get_cell_value(worksheet, f"E{row}")
-                end_date_value = self.get_cell_value(worksheet, f"F{row}")
-                days_value = self.get_cell_value(worksheet, f"G{row}")
+            for row in range(data_rows["start"], data_rows["end"] + 1):
+                start_date_value = self.get_cell_value(worksheet, f"{vacation_columns['start_date']}{row}")
+                end_date_value = self.get_cell_value(worksheet, f"{vacation_columns['end_date']}{row}")
+                days_value = self.get_cell_value(worksheet, f"{vacation_columns['days']}{row}")
                 
                 if not start_date_value or not end_date_value:
                     continue
                 
                 try:
-                    # Парсим даты
                     start_date = self.parse_date(start_date_value)
                     end_date = self.parse_date(end_date_value)
                     
                     if not start_date or not end_date:
                         continue
                     
-                    # Парсим количество дней
                     days = 0
                     if days_value:
                         try:
@@ -212,33 +270,34 @@ class BlockReportCreator:
                     print(f"ПРЕДУПРЕЖДЕНИЕ: Ошибка обработки периода в строке {row}: {e}")
                     continue
             
-            # Читаем результаты валидации
-            validation_h2 = str(self.get_cell_value(worksheet, "H2") or "").strip()
-            validation_i2 = str(self.get_cell_value(worksheet, "I2") or "").strip()
-            validation_j2 = self.get_cell_value(worksheet, "J2") or 0
+            # Читаем статус из B12 (новая логика)
+            status_cell = file_structure["status_cell"]
+            status_value = self.get_cell_value(worksheet, status_cell)
+            status_text = str(status_value).strip() if status_value else ""
             
             # Создаем VacationInfo
             vacation_info = VacationInfo(employee=employee, periods=periods)
             
-            # Определяем статус на основе валидаций
-            if "ОШИБКА" in validation_h2:
-                vacation_info.validation_errors.append(validation_h2)
-            
-            if "ОШИБКА" in validation_i2:
-                vacation_info.validation_errors.append(validation_i2)
-            
-            try:
-                total_days = int(validation_j2) if validation_j2 else 0
-                if total_days < 28:
-                    vacation_info.validation_errors.append(f"ОШИБКА: Недостаточно дней отпуска. Запланировано {total_days} дней, требуется минимум 28.")
-            except (ValueError, TypeError):
-                vacation_info.validation_errors.append("ОШИБКА: Не удалось определить общее количество дней отпуска.")
-            
-            # Обновляем статус
-            if not vacation_info.validation_errors:
-                vacation_info.status = "Ок"
+            # Определяем статус на основе значения в B12
+            statuses = self.config.validation_statuses
+            if status_text == statuses["not_filled"]:
+                vacation_info.status = "Форма не заполнена"
+            elif status_text == statuses["filled_correct"]:
+                vacation_info.status = "Форма заполнена корректно"
+            elif status_text == statuses["filled_incorrect"]:
+                vacation_info.status = "Форма заполнена некорректно"
             else:
-                vacation_info.status = "Ошибка"
+                # Если статус не распознан, пытаемся определить по содержимому
+                if not periods:
+                    vacation_info.status = "Форма не заполнена"
+                elif "некорректно" in status_text.lower() or "ошибка" in status_text.lower():
+                    vacation_info.status = "Форма заполнена некорректно"
+                else:
+                    vacation_info.status = "Форма заполнена некорректно"  # По умолчанию
+            
+            # Для отладки сохраняем текст статуса
+            if status_text and vacation_info.status != "Форма заполнена корректно":
+                vacation_info.validation_errors = [status_text]
             
             workbook.close()
             return vacation_info
@@ -249,13 +308,13 @@ class BlockReportCreator:
     
     def get_calendar_column(self, target_date: date, start_col: int) -> Optional[int]:
         """Вычисляет номер столбца для конкретной даты в календарной матрице"""
-        if target_date.year != 2026:
+        if target_date.year != self.config.target_year:
             return None
         
         col_offset = 0
         # Считаем смещение по месяцам
         for month in range(1, target_date.month):
-            col_offset += self.DAYS_IN_MONTH_2026[month - 1]
+            col_offset += self.config.days_in_months[month - 1]
         
         # Добавляем день месяца
         col_offset += target_date.day - 1
@@ -265,31 +324,36 @@ class BlockReportCreator:
     def fill_calendar_matrix(self, worksheet, vacation_infos: List[VacationInfo]):
         """Заполняет календарную матрицу на листе Report"""
         try:
-            start_col = 12  # Столбец L
+            # Получаем параметры из конфига
+            report_structure = self.config.report_structure
+            start_col = report_structure["calendar_start_col"]
+            month_row = report_structure["calendar_month_row"]
+            day_row = report_structure["calendar_day_row"]
+            employee_start_row = report_structure["employee_data_start_row"]
             
-            # Заполняем месяца в строке 7
+            # Заполняем месяца в строке
             col_offset = 0
-            for month_idx, month_name in enumerate(self.MONTH_NAMES):
+            for month_idx, month_name in enumerate(self.config.month_names):
                 month_col = start_col + col_offset
-                worksheet.cell(row=7, column=month_col, value=month_name)
+                worksheet.cell(row=month_row, column=month_col, value=month_name)
                 
-                # Заполняем дни месяца в строке 8
-                days_in_month = self.DAYS_IN_MONTH_2026[month_idx]
+                # Заполняем дни месяца в строке
+                days_in_month = self.config.days_in_months[month_idx]
                 for day in range(1, days_in_month + 1):
                     day_col = start_col + col_offset + day - 1
-                    worksheet.cell(row=8, column=day_col, value=day)
+                    worksheet.cell(row=day_row, column=day_col, value=day)
                 
                 col_offset += days_in_month
             
             # Заполняем отпуска для каждого сотрудника
             for emp_idx, vacation_info in enumerate(vacation_infos):
-                emp_row = emp_idx + 9  # Строка сотрудника
+                emp_row = employee_start_row + emp_idx
                 
                 for period in vacation_info.periods:
                     # Заполняем дни отпуска единицами
                     current_date = period.start_date
                     while current_date <= period.end_date:
-                        if current_date.year == 2026:  # Только для 2026 года
+                        if current_date.year == self.config.target_year:
                             day_col = self.get_calendar_column(current_date, start_col)
                             if day_col:
                                 worksheet.cell(row=emp_row, column=day_col, value=1)
@@ -308,7 +372,7 @@ class BlockReportCreator:
         """Создает отчет по блоку с календарной матрицей"""
         try:
             # Копируем шаблон
-            shutil.copy2(self.template_path, output_path)
+            shutil.copy2(self.config.template_path, output_path)
             
             # Открываем файл для заполнения
             workbook = openpyxl.load_workbook(output_path)
@@ -338,19 +402,39 @@ class BlockReportCreator:
         worksheet = workbook['Report']
         current_time = datetime.now()
         
-        # Шапка A3:A6
-        worksheet["A3"] = block_name
-        worksheet["A4"] = f"Дата обновления: {current_time.strftime('%d.%m.%Y %H:%M')}"
-        worksheet["A5"] = f"Количество сотрудников: {len(vacation_infos)}"
+        # Получаем ячейки шапки из конфига
+        header_cells = self.config.report_structure["report_header_cells"]
         
-        # Подсчет завершивших планирование
-        completed = sum(1 for vi in vacation_infos if vi.status == "Ок")
+        # Шапка отчета
+        worksheet[header_cells["block_name"]] = block_name
+        worksheet[header_cells["update_date"]] = f"Дата обновления: {current_time.strftime('%d.%m.%Y %H:%M')}"
+        worksheet[header_cells["total_employees"]] = f"Количество сотрудников: {len(vacation_infos)}"
+        
+        # Подсчет статусов (новая логика - 3 типа)
+        not_filled_count = 0
+        filled_incorrect_count = 0
+        filled_correct_count = 0
+        
+        statuses = self.config.validation_statuses
+        
+        for vi in vacation_infos:
+            if vi.status == statuses["not_filled"]:
+                not_filled_count += 1
+            elif vi.status == statuses["filled_incorrect"]:
+                filled_incorrect_count += 1
+            elif vi.status == statuses["filled_correct"]:
+                filled_correct_count += 1
+        
+        # Для совместимости считаем завершивших как корректно заполненных
+        completed = filled_correct_count
         percentage = (completed / len(vacation_infos) * 100) if vacation_infos else 0
-        worksheet["A6"] = f"Закончили планирование: {completed} ({percentage:.0f}%)"
+        worksheet[header_cells["completed"]] = f"Закончили планирование: {completed} ({percentage:.0f}%)"
         
-        # Заполняем таблицу сотрудников (начиная с строки 9)
+        # Заполняем таблицу сотрудников
+        employee_start_row = self.config.report_structure["employee_data_start_row"]
+        
         for i, vacation_info in enumerate(vacation_infos):
-            row = i + 9
+            row = employee_start_row + i
             emp = vacation_info.employee
             
             worksheet[f"A{row}"] = i + 1  # №
@@ -363,11 +447,13 @@ class BlockReportCreator:
             worksheet[f"H{row}"] = emp.department4  # Подразделение 4
             
             # Статус планирования
-            if vacation_info.status == "Ок":
+            if vacation_info.status == "Форма заполнена корректно":
                 worksheet[f"I{row}"] = "Ок"
-            else:
+            elif vacation_info.status == "Форма не заполнена":
+                worksheet[f"I{row}"] = "Не заполнено"
+            else:  # Заполнена некорректно
                 errors = vacation_info.validation_errors
-                worksheet[f"I{row}"] = "\n".join(errors) if errors else "Ошибка"
+                worksheet[f"I{row}"] = "\n".join(errors) if errors else "Заполнено с ошибками"
             
             worksheet[f"J{row}"] = vacation_info.total_days  # Итого дней
             worksheet[f"K{row}"] = vacation_info.periods_count  # Кол-во периодов
@@ -395,8 +481,11 @@ class BlockReportCreator:
         
         worksheet = workbook['Print']
         
-        # D4 - название блока
-        worksheet["D4"] = block_name
+        # Получаем настройки из конфига
+        print_structure = self.config.report_structure["print_structure"]
+        
+        # Название блока
+        worksheet[print_structure["block_name_cell"]] = block_name
         
         # Нормализуем данные - каждый период отпуска = отдельная строка
         normalized_data = []
@@ -424,10 +513,11 @@ class BlockReportCreator:
                     })
         
         # Заполняем данные с учетом разбивки по страницам
-        current_row = 9  # Начинаем с 9 строки
+        pagination = print_structure["pagination"]
+        current_row = print_structure["data_start_row"]
         records_on_page = 0
-        max_records_first_page = 14
-        max_records_other_pages = 18
+        max_records_first_page = pagination["first_page_records"]
+        max_records_other_pages = pagination["other_pages_records"]
         is_first_page = True
         
         for record_idx, record in enumerate(normalized_data):
@@ -550,35 +640,19 @@ def main():
         print(f"Файл: {output_filename}")
         print(f"Подразделение: {block_name}")
         print(f"Сотрудников: {len(vacation_infos)}")
+        print(f"Целевой год: {creator.config.target_year}")
         
-        # Статистика по статусам с детализацией ошибок
+        # Статистика по статусам (новая логика - 3 типа)
         status_counts = {}
-        error_types = {}
+        statuses = creator.config.validation_statuses
         
         for vi in vacation_infos:
             status = vi.status
             status_counts[status] = status_counts.get(status, 0) + 1
-            
-            # Детализация ошибок
-            if vi.validation_errors:
-                for error in vi.validation_errors:
-                    if "Недостаточно дней отпуска" in error:
-                        error_types["Недостаточно дней отпуска"] = error_types.get("Недостаточно дней отпуска", 0) + 1
-                    elif "пересечение периодов" in error.lower():
-                        error_types["Пересечение периодов"] = error_types.get("Пересечение периодов", 0) + 1
-                    elif "Не удалось определить" in error:
-                        error_types["Проблемы с подсчетом дней"] = error_types.get("Проблемы с подсчетом дней", 0) + 1
-                    else:
-                        error_types["Прочие ошибки"] = error_types.get("Прочие ошибки", 0) + 1
         
         print("Статистика планирования:")
         for status, count in status_counts.items():
             print(f"  {status}: {count}")
-        
-        if error_types:
-            print("Типы ошибок:")
-            for error_type, count in error_types.items():
-                print(f"  {error_type}: {count}")
         
         print()
         print("Отчет создан в текущей папке.")

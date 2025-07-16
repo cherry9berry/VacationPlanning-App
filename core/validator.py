@@ -6,7 +6,7 @@
 
 import logging
 from pathlib import Path
-from typing import List, Tuple, Optional
+from typing import List, Tuple, Optional, Dict
 import re
 
 import openpyxl
@@ -68,25 +68,25 @@ class Validator:
                 result.add_error(f"Не удалось прочитать строку заголовков {header_row}")
                 return result, employees
             
-            # Проверка обязательных заголовков
-            required_headers = ["ФИО работника", "Табельный номер", "Подразделение 1"]
+            # ИСПРАВЛЕНО: Проверка обязательных заголовков БЕЗ чтения rules
+            required_fields = ["ФИО работника", "Табельный номер", "Подразделение 1"]
             header_map = {header.strip(): idx for idx, header in enumerate(headers) if header}
             
-            for required in required_headers:
+            for required in required_fields:
                 if required not in header_map:
                     result.add_error(f"Отсутствует обязательный заголовок: {required}")
             
             if not result.is_valid:
                 return result, employees
             
-            # Чтение данных сотрудников
-            employees = self._read_employees(worksheet, header_row, header_map)
+            # Чтение данных сотрудников БЕЗ field_mapping
+            all_employees = self._read_employees(worksheet, header_row, header_map)
             
-            # Валидация данных сотрудников
-            self._validate_employees(employees, result)
+            # ИСПРАВЛЕННАЯ ЛОГИКА: Валидация и фильтрация сотрудников
+            employees, validation_stats = self._validate_and_filter_employees(all_employees, result)
             
             result.employee_count = len(employees)
-            result.unique_tab_numbers = self._count_unique_tab_numbers(employees)
+            result.unique_tab_numbers = validation_stats['unique_tab_numbers']
             result.processing_time = len(employees) * self.config.get("processing_time_per_file", 0.3)
             
             self.logger.info(f"Валидация завершена. Найдено сотрудников: {len(employees)}")
@@ -96,6 +96,142 @@ class Validator:
             self.logger.error(f"Ошибка валидации файла: {e}", exc_info=True)
         
         return result, employees
+    
+    def _validate_and_filter_employees(self, all_employees: List[Employee], result: ValidationResult) -> Tuple[List[Employee], Dict]:
+        """
+        ИСПРАВЛЕННАЯ ЛОГИКА: Валидирует сотрудников и исключает дублирующиеся табельные номера
+        
+        Returns:
+            Tuple[List[Employee], Dict]: отфильтрованный список сотрудников и статистика
+        """
+        tab_numbers = {}
+        duplicate_tab_numbers = {}
+        valid_employees = []
+        
+        # Первый проход - выявляем дублирующиеся табельные номера
+        for i, emp in enumerate(all_employees, 1):
+            # Проверка длины строк
+            if len(emp.full_name) > 255:
+                result.add_warning(f"Строка {i}: ФИО слишком длинное (>255 символов)")
+            
+            if len(emp.department1) > 255:
+                result.add_warning(f"Строка {i}: Название подразделения слишком длинное")
+            
+            # Проверка табельного номера
+            if not emp.tab_number:
+                result.add_error(f"Строка {i}: Пустой табельный номер")
+                continue
+            
+            # Проверка формата табельного номера
+            if not re.match(r'^\d+$', emp.tab_number):
+                result.add_warning(f"Строка {i}: Табельный номер не является числом: {emp.tab_number}")
+            
+            # Подсчет табельных номеров
+            if emp.tab_number in tab_numbers:
+                tab_numbers[emp.tab_number].append(emp)
+            else:
+                tab_numbers[emp.tab_number] = [emp]
+        
+        # Второй проход - определяем какие табельные номера дублируются
+        for tab_num, emp_list in tab_numbers.items():
+            if len(emp_list) > 1:
+                # Дублирующийся табельный номер - добавляем в статистику и исключаем всех
+                names = [emp.full_name for emp in emp_list]
+                duplicate_tab_numbers[tab_num] = names
+                result.add_warning(f"Дублирующийся табельный номер {tab_num}: {', '.join(names)}")
+            else:
+                # Уникальный табельный номер - добавляем сотрудника в валидный список
+                valid_employees.extend(emp_list)
+        
+        # Проверка количества сотрудников
+        unique_count = len(valid_employees)  # Теперь только уникальные
+        min_employees = self.config.min_employees
+        max_employees = self.config.max_employees
+        
+        if unique_count < min_employees:
+            result.add_error(f"Слишком мало уникальных сотрудников: {unique_count} (минимум {min_employees})")
+        
+        if unique_count > max_employees:
+            result.add_error(f"Слишком много сотрудников: {unique_count} (максимум {max_employees})")
+        
+        validation_stats = {
+            'unique_tab_numbers': len(tab_numbers) - len(duplicate_tab_numbers),
+            'duplicate_count': len(duplicate_tab_numbers),
+            'excluded_employees': sum(len(names) for names in duplicate_tab_numbers.values())
+        }
+        
+        return valid_employees, validation_stats
+    
+    def _read_employees(self, worksheet, header_row: int, header_map: dict) -> List[Employee]:
+        """ИСПРАВЛЕНО: Читает сотрудников БЕЗ field_mapping - простая логика"""
+        employees = []
+        
+        row_num = header_row + 1
+        while True:
+            row_values = self._get_row_values(worksheet, row_num)
+            
+            if not row_values or all(not val for val in row_values):
+                break
+            
+            employee = Employee()
+            
+            for field_name, col_idx in header_map.items():
+                if col_idx < len(row_values):
+                    value = row_values[col_idx]
+                    if value is not None:
+                        value = str(value).strip()
+                    
+                    # ИСПРАВЛЕНО: Простое сопоставление без field_mapping
+                    if field_name == "ФИО работника":
+                        employee.full_name = value or ""
+                    elif field_name == "Табельный номер":
+                        employee.tab_number = value or ""
+                    elif field_name == "Должность":
+                        employee.position = value or ""
+                    elif field_name == "Подразделение 1":
+                        employee.department1 = value or ""
+                    elif field_name == "Подразделение 2":
+                        employee.department2 = value or ""
+                    elif field_name == "Подразделение 3":
+                        employee.department3 = value or ""
+                    elif field_name == "Подразделение 4":
+                        employee.department4 = value or ""
+                    elif field_name == "Локация":
+                        employee.location = value or ""
+                    elif field_name == "Остатки отпуска":
+                        employee.vacation_remainder = value or ""
+                    elif field_name == "Дата приема":
+                        employee.hire_date = value or ""
+                    elif field_name == "Дата отсечки периода":
+                        employee.period_cutoff_date = value or ""
+                    elif field_name == "Дополнительный отпуск НРД":
+                        employee.additional_vacation_nrd = value or ""
+                    elif field_name == "Дополнительный отпуск Северный":
+                        employee.additional_vacation_north = value or ""
+            
+            # Добавляем только если есть обязательные поля
+            if employee.full_name and employee.tab_number and employee.department1:
+                employees.append(employee)
+            
+            row_num += 1
+        
+        return employees
+    
+    def _get_row_values(self, worksheet, row_num: int) -> List:
+        """Получает значения строки из листа Excel"""
+        try:
+            row = list(worksheet.iter_rows(min_row=row_num, max_row=row_num, values_only=True))[0]
+            return [cell if cell is not None else "" for cell in row]
+        except (IndexError, AttributeError):
+            return []
+    
+    def _count_unique_tab_numbers(self, employees: List[Employee]) -> int:
+        """Подсчитывает количество уникальных табельных номеров"""
+        unique_tabs = set()
+        for emp in employees:
+            if emp.tab_number:
+                unique_tabs.add(emp.tab_number)
+        return len(unique_tabs)
     
     def validate_templates(self) -> ValidationResult:
         """Проверяет наличие всех необходимых шаблонов"""
@@ -134,115 +270,3 @@ class Validator:
             result.add_error(f"Невозможно создать выходную папку: {e}")
         
         return result
-    
-    def _get_row_values(self, worksheet, row_num: int) -> List[str]:
-        """Получает значения строки"""
-        values = []
-        for cell in worksheet[row_num]:
-            value = cell.value
-            if value is None:
-                values.append("")
-            else:
-                values.append(str(value).strip())
-        return values
-    
-    def _read_employees(self, worksheet, header_row: int, header_map: dict) -> List[Employee]:
-        """Читает данных сотрудников из листа"""
-        employees = []
-        
-        # Начинаем с строки после заголовков
-        for row_num in range(header_row + 1, worksheet.max_row + 1):
-            row_values = self._get_row_values(worksheet, row_num)
-            
-            # Пропускаем пустые строки
-            if not any(row_values):
-                continue
-            
-            employee = Employee()
-            
-            # Заполняем данные сотрудника
-            for field_name, column_idx in header_map.items():
-                if column_idx < len(row_values):
-                    value = row_values[column_idx].strip()
-                    
-                    if field_name == "ФИО работника":
-                        employee.full_name = value
-                    elif field_name == "Табельный номер":
-                        employee.tab_number = value
-                    elif field_name == "Должность":
-                        employee.position = value
-                    elif field_name == "Подразделение 1":
-                        employee.department1 = value
-                    elif field_name == "Подразделение 2":
-                        employee.department2 = value
-                    elif field_name == "Подразделение 3":
-                        employee.department3 = value
-                    elif field_name == "Подразделение 4":
-                        employee.department4 = value
-                    # Новые поля
-                    elif field_name == "Локация":
-                        employee.location = value
-                    elif field_name == "Остатки отпуска":
-                        employee.vacation_remainder = value
-                    elif field_name == "Дата приема":
-                        employee.hire_date = value
-                    elif field_name == "Дата отсечки периода":
-                        employee.period_cutoff_date = value
-                    elif field_name == "Дополнительный отпуск НРД":
-                        employee.additional_vacation_nrd = value
-                    elif field_name == "Дополнительный отпуск Северный":
-                        employee.additional_vacation_north = value
-            
-            # Добавляем только если есть обязательные поля
-            if employee.full_name and employee.tab_number and employee.department1:
-                employees.append(employee)
-        
-        return employees
-    
-    def _validate_employees(self, employees: List[Employee], result: ValidationResult):
-        """Валидирует данные сотрудников"""
-        tab_numbers = {}
-        
-        for i, emp in enumerate(employees, 1):
-            # Проверка длины строк
-            if len(emp.full_name) > 255:
-                result.add_warning(f"Строка {i}: ФИО слишком длинное (>255 символов)")
-            
-            if len(emp.department1) > 255:
-                result.add_warning(f"Строка {i}: Название подразделения слишком длинное")
-            
-            # Проверка табельного номера
-            if not emp.tab_number:
-                result.add_error(f"Строка {i}: Пустой табельный номер")
-                continue
-            
-            # Проверка формата табельного номера
-            if not re.match(r'^\d+$', emp.tab_number):
-                result.add_warning(f"Строка {i}: Табельный номер не является числом: {emp.tab_number}")
-            
-            # Проверка уникальности табельного номера
-            if emp.tab_number in tab_numbers:
-                tab_numbers[emp.tab_number] += 1
-                result.add_warning(f"Дублирующийся табельный номер: {emp.tab_number}")
-            else:
-                tab_numbers[emp.tab_number] = 1
-        
-        # Проверка количества сотрудников
-        unique_count = len(tab_numbers)
-        min_employees = self.config.min_employees
-        max_employees = self.config.max_employees
-        
-        if unique_count < min_employees:
-            result.add_error(f"Слишком мало сотрудников: {unique_count} (минимум {min_employees})")
-        
-        if unique_count > max_employees:
-            result.add_error(f"Слишком много сотрудников: {unique_count} (максимум {max_employees})")
-    
-    def _count_unique_tab_numbers(self, employees: List[Employee]) -> int:
-        """Подсчитывает количество уникальных табельных номеров"""
-        unique_tabs = set()
-        for emp in employees:
-            if emp.tab_number:
-                unique_tabs.add(emp.tab_number)
-        return len(unique_tabs)
-    

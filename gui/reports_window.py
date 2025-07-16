@@ -609,6 +609,55 @@ class ReportTab:
             except tk.TclError:
                 return
             
+            # Общий процент
+            if self.tab_type == "departments":
+                if progress.total_files > 0:
+                    overall_percent = (progress.processed_files / progress.total_files) * 100
+                    self.overall_progress_label.config(text=f"Общий прогресс: {overall_percent:.1f}%")
+            else:
+                if progress.total_blocks > 0:
+                    overall_percent = (progress.processed_blocks / progress.total_blocks) * 100
+                    self.overall_progress_label.config(text=f"Общий прогресс: {overall_percent:.1f}%")
+            
+            # Время
+            elapsed = (datetime.now() - progress.start_time).total_seconds() if progress.start_time else 0
+            
+            if self.tab_type == "departments":
+                if progress.processed_files > 0 and progress.total_files > 0:
+                    speed = progress.processed_files / elapsed if elapsed > 0 else 0
+                    remaining_files = progress.total_files - progress.processed_files
+                    remaining_time = remaining_files / speed if speed > 0 else 0
+                    self.time_label.config(text=f"Прошло: {elapsed:.0f} сек, Осталось: {remaining_time:.0f} сек")
+                else:
+                    self.time_label.config(text=f"Прошло: {elapsed:.0f} сек")
+            else:
+                if progress.processed_blocks > 0 and progress.total_blocks > 0:
+                    speed = progress.processed_blocks / elapsed if elapsed > 0 else 0
+                    remaining_blocks = progress.total_blocks - progress.processed_blocks
+                    remaining_time = remaining_blocks / speed if speed > 0 else 0
+                    self.time_label.config(text=f"Прошло: {elapsed:.0f} сек, Осталось: {remaining_time:.0f} сек")
+                else:
+                    self.time_label.config(text=f"Прошло: {elapsed:.0f} сек")
+            
+            # ИСПРАВЛЕНИЕ: Верхний прогресс-бар (отделы) - возвращаем правильную логику
+            if progress.total_blocks > 0:
+                # Для отчетов по блокам - показываем текущий обрабатываемый отдел
+                if self.tab_type == "departments":
+                    dept_percent = (progress.processed_blocks / progress.total_blocks) * 100
+                    current_dept_display = progress.processed_blocks + 1 if progress.processed_blocks < progress.total_blocks else progress.total_blocks
+                    self.dept_progress_bar['value'] = dept_percent
+                    self.dept_detail_label.config(
+                        text=f"Отдел {current_dept_display}/{progress.total_blocks}: {progress.current_block or 'Готовится...'}"
+                    )
+                else:
+                    # Для общего отчета - показываем завершенные отделы
+                    dept_percent = (progress.processed_blocks / progress.total_blocks) * 100
+                    self.dept_progress_bar['value'] = dept_percent
+                    self.dept_detail_label.config(
+                        text=f"Отдел {progress.processed_blocks}/{progress.total_blocks}: {progress.current_block or 'Готовится...'}"
+                    )
+            
+            # ИСПРАВЛЕННЫЙ НИЖНИЙ ПРОГРЕСС-БАР
             if self.tab_type == "departments":
                 # ДЛЯ ОТЧЕТОВ ПО ПОДРАЗДЕЛЕНИЯМ - реальные файлы в текущем отделе
                 if hasattr(self, 'selected_departments') and self.selected_departments:
@@ -722,11 +771,14 @@ class ReportTab:
             
             for entry in operation_log.entries:
                 if entry.level == "INFO":
-                    # ИСПРАВЛЕНИЕ: Убираем зеленое выделение для ИТОГ сообщений
-                    if entry.message.startswith("Создан отчет:"):
+                    # ИСПРАВЛЕНИЕ: Убираем зеленое выделение для всех ИТОГ сообщений по отделам
+                    if ("Создан отчет:" in entry.message or 
+                        "Данные собраны из отчета для" in entry.message or
+                        "Скрипт скопирован в" in entry.message or
+                        "найдено" in entry.message.lower() and "отчет" in entry.message.lower()):
                         self.add_info_to_existing(f"ИТОГ: {entry.message}")  # Обычный текст
                     else:
-                        self.add_info_to_existing(f"ИТОГ: {entry.message}", "success")  # Зеленое для остальных
+                        self.add_info_to_existing(f"ИТОГ: {entry.message}", "success")  # Зеленое только для итоговых сводок
         else:
             self.add_info_to_existing("")
             self.add_info_to_existing("ОШИБКА СОЗДАНИЯ ОТЧЕТОВ!", "error")
@@ -734,8 +786,8 @@ class ReportTab:
                 if entry.level == "ERROR":
                     self.add_info_to_existing(f"ОШИБКА: {entry.message}", "error")
             
-            # Показываем messagebox с ошибкой
-            messagebox.showerror("Ошибка создания отчетов", "Создание отчетов завершено с ошибками. См. подробности в окне.")
+            # Показываем messagebox с ошибкой - привязываем к окну отчетов
+            messagebox.showerror("Ошибка создания отчетов", "Создание отчетов завершено с ошибками. См. подробности в окне.", parent=self.frame.winfo_toplevel())
         
         self.show_info_view()
         
@@ -746,7 +798,7 @@ class ReportTab:
         """Ошибка обработки"""
         self.is_processing = False
         self.add_info(f"Критическая ошибка: {error_message}", "error")
-        messagebox.showerror("Критическая ошибка", error_message)
+        messagebox.showerror("Критическая ошибка", error_message, parent=self.frame.winfo_toplevel())
         self.show_info_view()
         self.action_btn.config(text="Закрыть", command=self.close_window, state=tk.NORMAL)
     

@@ -34,193 +34,223 @@ class VacationProcessor:
         self.file_manager = FileManager(config)
 
     def create_employee_files_to_existing(
-        self, 
-        staff_file_path: str, 
-        target_directory: str,
-        progress_callback: Optional[Callable[[ProcessingProgress], None]] = None,
-        department_progress_callback: Optional[Callable[[int, int, str], None]] = None,
-        file_progress_callback: Optional[Callable[[int, int, str], None]] = None
-    ) -> OperationLog:
-        """
-        Создает файлы сотрудников в существующей папке
-        """
-        operation_log = OperationLog("Создание файлов сотрудников в существующей структуре")
-        operation_log.add_entry("INFO", "Начало создания файлов сотрудников")
-        
-        try:
-            start_time = datetime.now()
-            progress = ProcessingProgress(
-                current_operation="Начало обработки",
-                start_time=start_time
-            )
+            self, 
+            staff_file_path: str, 
+            target_directory: str,
+            progress_callback: Optional[Callable[[ProcessingProgress], None]] = None,
+            department_progress_callback: Optional[Callable[[int, int, str], None]] = None,
+            file_progress_callback: Optional[Callable[[int, int, str], None]] = None
+        ) -> OperationLog:
+            """
+            Создает файлы сотрудников в существующей папке
+            """
+            print("=== DEBUG PROCESSOR: Метод create_employee_files_to_existing вызван ===")
+            operation_log = OperationLog("Создание файлов сотрудников в существующей структуре")
+            operation_log.add_entry("INFO", "Начало создания файлов сотрудников")
             
-            if progress_callback:
-                progress_callback(progress)
-            
-            # 1. Валидация файла штатного расписания
-            progress.current_operation = "Валидация файла штатного расписания"
-            progress.current_file = Path(staff_file_path).name
-            if progress_callback:
-                progress_callback(progress)
-            
-            validation_result, employees = self.validator.validate_staff_file(staff_file_path)
-            if not validation_result.is_valid:
-                operation_log.add_entry("ERROR", f"Валидация не пройдена: {validation_result.errors}")
-                operation_log.finish(ProcessingStatus.ERROR)
-                return operation_log
-            
-            operation_log.add_entry("INFO", f"Валидация пройдена. Найдено сотрудников: {len(employees)}")
-            
-            # 2. Группировка сотрудников по отделам
-            progress.current_operation = "Группировка сотрудников по отделам"
-            if progress_callback:
-                progress_callback(progress)
-            
-            employees_by_dept = self.file_manager.group_employees_by_department(employees)
-            
-            # 3. Создание структуры папок
-            progress.current_operation = "Подготовка структуры папок"
-            if progress_callback:
-                progress_callback(progress)
-            
-            departments = self.file_manager.create_or_use_department_structure(target_directory, employees)
-            
-            # 4. Подготовка прогресса
-            total_departments = len(employees_by_dept)
-            total_employees = len(employees)
-            
-            progress.total_blocks = total_departments
-            progress.total_files = total_employees
-            progress.processed_blocks = 0
-            progress.processed_files = 0
-            
-            if progress_callback:
-                progress_callback(progress)
-            
-            # 5. Создание файлов по отделам
-            total_success_count = 0
-            total_skipped_count = 0
-            total_error_count = 0
-            
-            for dept_idx, (dept_name, dept_employees) in enumerate(employees_by_dept.items()):
-                progress.current_operation = f"Обработка отдела: {dept_name}"
-                progress.current_block = dept_name
-                progress.processed_blocks = dept_idx
+            try:
+                start_time = datetime.now()
+                progress = ProcessingProgress(
+                    current_operation="Начало обработки",
+                    start_time=start_time
+                )
                 
-                if department_progress_callback:
-                    department_progress_callback(dept_idx, total_departments, dept_name)
+                print("=== DEBUG PROCESSOR: Создан прогресс ===")
+                if progress_callback:
+                    print("=== DEBUG PROCESSOR: Вызываем progress_callback ===")
+                    progress_callback(progress)
                 
+                # 1. Валидация файла штатного расписания
+                print("=== DEBUG PROCESSOR: Начинаем валидацию ===")
+                progress.current_operation = "Валидация файла штатного расписания"
+                progress.current_file = Path(staff_file_path).name
                 if progress_callback:
                     progress_callback(progress)
                 
-                dept_path = departments.get(dept_name)
-                if not dept_path:
-                    operation_log.add_entry("ERROR", f"Папка для отдела {dept_name} не найдена")
-                    continue
+                validation_result, employees = self.validator.validate_staff_file(staff_file_path)
+                print(f"=== DEBUG PROCESSOR: Валидация завершена, найдено {len(employees)} сотрудников ===")
                 
-                # Счетчики для текущего отдела
-                dept_success_count = 0
-                dept_skipped_count = 0
-                dept_error_count = 0
+                if not validation_result.is_valid:
+                    operation_log.add_entry("ERROR", f"Валидация не пройдена: {validation_result.errors}")
+                    operation_log.finish(ProcessingStatus.ERROR)
+                    return operation_log
                 
-                # Обрабатываем сотрудников в текущем отделе
-                for emp_idx, employee in enumerate(dept_employees):
-                    try:
-                        # Генерируем имя файла
-                        filename = self.excel_handler.generate_output_filename(employee)
-                        output_path = Path(dept_path) / filename
+                operation_log.add_entry("INFO", f"Валидация пройдена. Найдено сотрудников: {len(employees)}")
+                
+                # 2. Группировка сотрудников по отделам
+                print("=== DEBUG PROCESSOR: Группируем сотрудников ===")
+                progress.current_operation = "Группировка сотрудников по отделам"
+                if progress_callback:
+                    progress_callback(progress)
+                
+                employees_by_dept = self.file_manager.group_employees_by_department(employees)
+                print(f"=== DEBUG PROCESSOR: Сгруппировано по {len(employees_by_dept)} отделам ===")
+                
+                # 3. Создание структуры папок
+                print("=== DEBUG PROCESSOR: Создаем структуру папок ===")
+                progress.current_operation = "Подготовка структуры папок"
+                if progress_callback:
+                    progress_callback(progress)
+                
+                departments = self.file_manager.create_or_use_department_structure(target_directory, employees)
+                print(f"=== DEBUG PROCESSOR: Создано {len(departments)} папок отделов ===")
+                
+                # 4. Подготовка прогресса
+                total_departments = len(employees_by_dept)
+                total_employees = len(employees)
+                
+                progress.total_blocks = total_departments
+                progress.total_files = total_employees
+                progress.processed_blocks = 0
+                progress.processed_files = 0
+                
+                print(f"=== DEBUG PROCESSOR: Подготовлено {total_departments} отделов, {total_employees} сотрудников ===")
+                if progress_callback:
+                    progress_callback(progress)
+                
+                # 5. Создание файлов по отделам
+                print("=== DEBUG PROCESSOR: Начинаем создание файлов ===")
+                total_success_count = 0
+                total_skipped_count = 0
+                total_error_count = 0
+                
+                for dept_idx, (dept_name, dept_employees) in enumerate(employees_by_dept.items()):
+                    print(f"=== DEBUG PROCESSOR: Обрабатываем отдел {dept_idx+1}/{total_departments}: {dept_name} ({len(dept_employees)} сотр.) ===")
+                    
+                    progress.current_operation = f"Обработка отдела: {dept_name}"
+                    progress.current_block = dept_name
+                    progress.processed_blocks = dept_idx
+                    
+                    if department_progress_callback:
+                        print(f"=== DEBUG PROCESSOR: Вызываем department_progress_callback({dept_idx}, {total_departments}, {dept_name}) ===")
+                        department_progress_callback(dept_idx, total_departments, dept_name)
+                    
+                    if progress_callback:
+                        progress_callback(progress)
+                    
+                    dept_path = departments.get(dept_name)
+                    if not dept_path:
+                        print(f"=== DEBUG PROCESSOR: ОШИБКА - Папка для отдела {dept_name} не найдена ===")
+                        operation_log.add_entry("ERROR", f"Папка для отдела {dept_name} не найдена")
+                        continue
+                    
+                    print(f"=== DEBUG PROCESSOR: Папка отдела: {dept_path} ===")
+                    
+                    # Счетчики для текущего отдела
+                    dept_success_count = 0
+                    dept_skipped_count = 0
+                    dept_error_count = 0
+                    
+                    # Обрабатываем сотрудников в текущем отделе
+                    for emp_idx, employee in enumerate(dept_employees):
+                        print(f"=== DEBUG PROCESSOR: Обрабатываем сотрудника {emp_idx+1}/{len(dept_employees)}: {employee.full_name} ===")
                         
-                        # Проверяем существование файла
-                        if output_path.exists():
-                            dept_skipped_count += 1
-                            total_skipped_count += 1
-                            message = f"Пропущен: {employee.full_name}"
-                        else:
-                            # Создаем файл сотрудника
-                            try:
-                                create_success = self.excel_handler.create_employee_file(employee, str(output_path))
+                        try:
+                            # Генерируем имя файла
+                            filename = self.excel_handler.generate_output_filename(employee)
+                            output_path = Path(dept_path) / filename
+                            
+                            print(f"=== DEBUG PROCESSOR: Файл: {output_path} ===")
+                            
+                            # Проверяем существование файла
+                            if output_path.exists():
+                                print(f"=== DEBUG PROCESSOR: Файл существует, пропускаем ===")
+                                dept_skipped_count += 1
+                                total_skipped_count += 1
+                                message = f"Пропущен (уже существует): {employee.full_name}"
+                            else:
+                                print(f"=== DEBUG PROCESSOR: Создаем файл сотрудника ===")
+                                # Создаем файл сотрудника
+                                success = self.excel_handler.create_employee_file(employee, str(output_path))
                                 
-                                if create_success:
+                                if success:
+                                    print(f"=== DEBUG PROCESSOR: Файл создан успешно ===")
                                     dept_success_count += 1
                                     total_success_count += 1
                                     message = f"Создан: {employee.full_name}"
                                 else:
+                                    print(f"=== DEBUG PROCESSOR: ОШИБКА создания файла ===")
                                     dept_error_count += 1
                                     total_error_count += 1
-                                    message = f"Ошибка: {employee.full_name}"
-                                    operation_log.add_entry("ERROR", f"Не удалось создать файл для {employee.full_name}")
+                                    message = f"Ошибка создания: {employee.full_name}"
                             
-                            except Exception as e:
-                                dept_error_count += 1
-                                total_error_count += 1
-                                message = f"КРИТИЧЕСКАЯ ОШИБКА: {employee.full_name}"
-                                operation_log.add_entry("ERROR", f"Критическая ошибка создания файла {employee.full_name}: {str(e)}")
-                                
-                                # Если есть ошибки в шаблоне - прерываем весь процесс
-                                if "rules" in str(e).lower() or "шаблон" in str(e).lower() or "правил" in str(e).lower():
-                                    operation_log.add_entry("ERROR", f"КРИТИЧЕСКАЯ ОШИБКА ШАБЛОНА: {str(e)}")
-                                    operation_log.finish(ProcessingStatus.ERROR)
-                                    return operation_log
-                        
-                        progress.processed_files += 1
-                        
-                        # Обновляем прогресс по файлам в отделе
-                        if file_progress_callback:
-                            file_progress_callback(emp_idx + 1, len(dept_employees), message)
-                        
-                        # Обновляем общий прогресс
-                        if progress_callback:
-                            progress_callback(progress)
-                        
-                        # Небольшая задержка
-                        time.sleep(0.05)
-                        
-                    except Exception as e:
-                        dept_error_count += 1
-                        total_error_count += 1
-                        self.logger.error(f"Ошибка создания файла для {employee.full_name}: {e}")
-                        progress.processed_files += 1
-                        if file_progress_callback:
-                            file_progress_callback(emp_idx + 1, len(dept_employees), f"Ошибка: {employee.full_name}")
+                            progress.processed_files += 1
+                            
+                            # Обновляем прогресс по файлам в отделе
+                            if file_progress_callback:
+                                print(f"=== DEBUG PROCESSOR: Вызываем file_progress_callback({emp_idx + 1}, {len(dept_employees)}, {message}) ===")
+                                file_progress_callback(emp_idx + 1, len(dept_employees), message)
+                            
+                            # Обновляем общий прогресс
+                            if progress_callback:
+                                progress_callback(progress)
+                            
+                            # Небольшая задержка для демонстрации прогресса
+                            time.sleep(0.05)
+                            
+                        except Exception as e:
+                            print(f"=== DEBUG PROCESSOR: ИСКЛЮЧЕНИЕ при обработке сотрудника {employee.full_name}: {e} ===")
+                            dept_error_count += 1
+                            total_error_count += 1
+                            self.logger.error(f"Ошибка создания файла для {employee.full_name}: {e}")
+                            progress.processed_files += 1
+                            
+                            if file_progress_callback:
+                                file_progress_callback(emp_idx + 1, len(dept_employees), f"Ошибка: {employee.full_name}")
+                            
+                            if progress_callback:
+                                progress_callback(progress)
+                    
+                    # Логируем результаты по отделу
+                    print(f"=== DEBUG PROCESSOR: Отдел {dept_name} завершен: создано {dept_success_count}, пропущено {dept_skipped_count}, ошибок {dept_error_count} ===")
+                    if dept_success_count > 0 or dept_skipped_count > 0 or dept_error_count > 0:
+                        operation_log.add_entry("INFO", f"Отдел {dept_name}: создано {dept_success_count}, пропущено {dept_skipped_count}")
+                    
+                    # Завершаем обработку отдела
+                    progress.processed_blocks = dept_idx + 1
+                    
+                    if department_progress_callback:
+                        department_progress_callback(dept_idx + 1, total_departments, dept_name)
                 
-                # ИСПРАВЛЕНИЕ: Правильный подсчет по отделу
-                if dept_success_count > 0 or dept_skipped_count > 0 or dept_error_count > 0:
-                    operation_log.add_entry("INFO", f"Отдел {dept_name}: создано {dept_success_count}, пропущено {dept_skipped_count}")
+                print("=== DEBUG PROCESSOR: Все отделы обработаны, завершаем ===")
                 
-                # Завершаем обработку отдела
-                progress.processed_blocks = dept_idx + 1
+                # 6. Завершение
+                end_time = datetime.now()
+                duration = end_time - start_time
                 
-                if department_progress_callback:
-                    department_progress_callback(dept_idx + 1, total_departments, dept_name)
-            
-            # 6. Завершение
-            end_time = datetime.now()
-            duration = end_time - start_time
-            
-            progress.current_operation = "Создание файлов завершено"
-            progress.end_time = end_time
-            if progress_callback:
-                progress_callback(progress)
-            
-            # Проверяем результат
-            if total_error_count > 0:
-                operation_log.add_entry("ERROR", f"Обработка завершена с ошибками: успешно {total_success_count}, ошибок {total_error_count}, пропущено {total_skipped_count}")
-                operation_log.finish(ProcessingStatus.ERROR)
-            else:
-                operation_log.add_entry("INFO", f"Создано файлов сотрудников: {total_success_count}, пропущено: {total_skipped_count} из {total_employees}")
+                progress.current_operation = "Файлы созданы"
+                progress.end_time = end_time
+                if progress_callback:
+                    progress_callback(progress)
+                
+                # Итоговая статистика
+                operation_log.add_entry("INFO", f"Создание файлов завершено")
+                operation_log.add_entry("INFO", f"Успешно создано: {total_success_count} файлов")
+                operation_log.add_entry("INFO", f"Пропущено (уже существует): {total_skipped_count} файлов")
+                
+                if total_error_count > 0:
+                    operation_log.add_entry("WARNING", f"Ошибок при создании: {total_error_count} файлов")
+                
                 operation_log.add_entry("INFO", f"Время выполнения: {duration.total_seconds():.1f} сек")
                 operation_log.finish(ProcessingStatus.SUCCESS)
-            
-            return operation_log
-            
-        except Exception as e:
-            error_msg = f"Критическая ошибка: {e}"
-            operation_log.add_entry("ERROR", error_msg)
-            self.logger.error(error_msg, exc_info=True)
-            operation_log.finish(ProcessingStatus.ERROR)
-            
-            return operation_log
-        
+                
+                print(f"=== DEBUG PROCESSOR: Завершено успешно: {total_success_count} создано, {total_skipped_count} пропущено, {total_error_count} ошибок ===")
+                self.logger.info(f"Создание файлов завершено: {total_success_count} создано, {total_skipped_count} пропущено, {total_error_count} ошибок")
+                
+                return operation_log
+                
+            except Exception as e:
+                print(f"=== DEBUG PROCESSOR: КРИТИЧЕСКАЯ ОШИБКА: {e} ===")
+                import traceback
+                traceback.print_exc()
+                
+                error_msg = f"Критическая ошибка: {e}"
+                operation_log.add_entry("ERROR", error_msg)
+                self.logger.error(error_msg, exc_info=True)
+                operation_log.finish(ProcessingStatus.ERROR)
+                
+                return operation_log
+
     def _clean_filename_for_exe(self, filename: str) -> str:
         """Очищает имя файла для exe от недопустимых символов"""
         if not filename:

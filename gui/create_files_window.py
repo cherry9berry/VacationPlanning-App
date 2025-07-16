@@ -458,103 +458,89 @@ class CreateFilesWindow:
                 self.window.after(0, self.on_validation_error, str(e))
         
         threading.Thread(target=validate_thread, daemon=True).start()
-    
+        
     def on_validation_complete(self, employees):
-        """Обработчик завершения валидации"""
-        # Сохраняем сотрудников для проверки отделов и уникальности
-        self._employees = employees
-        
-        if self.validation_result.is_valid:
-            self.add_info("")
-            self.add_info("ВАЛИДАЦИЯ УСПЕШНО ЗАВЕРШЕНА", "success")
+            """Обработчик завершения валидации"""
+            # Сохраняем сотрудников (уже отфильтрованных в validator)
+            self._employees = employees
             
-            # Проверяем уникальность табельных номеров и отделов
-            unique_check = self.check_employee_uniqueness(employees)
-            if not unique_check['is_valid']:
+            if self.validation_result.is_valid:
                 self.add_info("")
-                self.add_info("НАЙДЕНЫ ПРОБЛЕМЫ:", "warning")
-                for error in unique_check['errors']:
-                    self.add_info(f"  • {error}", "warning")
-            
-            self.add_info("")
-            self.add_info("СТАТИСТИКА ФАЙЛА:", "success")
-            stats_lines = self.format_validation_stats(self.validation_result, employees).split('\n')
-            for line in stats_lines:
-                if line.strip():
-                    self.add_info(f"  {line.strip()}")
-            
-            # Если уже выбрана папка, перепроверяем ее
-            if self.output_dir_path:
+                self.add_info("ВАЛИДАЦИЯ УСПЕШНО ЗАВЕРШЕНА", "success")
+                
+                # ИСПРАВЛЕНО: Теперь список employees уже отфильтрован и не содержит дублирующихся табельных номеров
+                # Поэтому дополнительная проверка не нужна, но покажем предупреждения из валидации
+                if self.validation_result.warnings:
+                    self.add_info("")
+                    self.add_info("НАЙДЕНЫ ПРОБЛЕМЫ:", "warning")
+                    for warning in self.validation_result.warnings:
+                        self.add_info(f"  • {warning}", "warning")
+                
                 self.add_info("")
-                self.add_info("Анализ целевой папки...")
-                self.check_existing_files(self.output_dir_path)
+                self.add_info("СТАТИСТИКА ФАЙЛА:", "success")
+                
+                # ИСПРАВЛЕНО: Используем правильную статистику
+                total_after_filter = len(employees)  # Количество после фильтрации
+                unique_tab_numbers = len(set(emp.tab_number for emp in employees))
+                warnings_count = len(self.validation_result.warnings)
+                
+                self.add_info(f"  • Всего сотрудников после фильтрации: {total_after_filter}")
+                self.add_info(f"  • Уникальных табельных номеров: {unique_tab_numbers}")
+                if warnings_count > 0:
+                    self.add_info(f"  • Предупреждений: {warnings_count}")
+                
+                # Если уже выбрана папка, перепроверяем ее
+                if self.output_dir_path:
+                    self.add_info("")
+                    self.add_info("Анализ целевой папки...")
+                    self.check_existing_files(self.output_dir_path)
+                else:
+                    self.add_info("")
+                    self.add_info("Выберите целевую папку для создания файлов сотрудников")
+                
+                # Проверяем возможность активации кнопки создания
+                self.check_create_button_state()
+                
             else:
                 self.add_info("")
-                self.add_info("Выберите целевую папку для создания файлов сотрудников")
-            
-            # Проверяем возможность активации кнопки создания
-            self.check_create_button_state()
-            
-        else:
-            self.add_info("")
-            self.add_info("ВАЛИДАЦИЯ ВЫЯВИЛА ОШИБКИ", "error")
-            
-            self.add_info("")
-            self.add_info("ОШИБКИ ВАЛИДАЦИИ:", "error")
-            for error in self.validation_result.errors:
-                self.add_info(f"  • {error}", "error")
-            
-            if self.validation_result.warnings:
+                self.add_info("ВАЛИДАЦИЯ ВЫЯВИЛА ОШИБКИ", "error")
+                
                 self.add_info("")
-                self.add_info("ПРЕДУПРЕЖДЕНИЯ:", "warning")
-                for warning in self.validation_result.warnings:
-                    self.add_info(f"  • {warning}", "warning")
-    
+                self.add_info("ОШИБКИ ВАЛИДАЦИИ:", "error")
+                for error in self.validation_result.errors:
+                    self.add_info(f"  • {error}", "error")
+                
+                if self.validation_result.warnings:
+                    self.add_info("")
+                    self.add_info("ПРЕДУПРЕЖДЕНИЯ:", "warning")
+                    for warning in self.validation_result.warnings:
+                        self.add_info(f"  • {warning}", "warning")
+
     def check_employee_uniqueness(self, employees):
-        """Проверяет уникальность сотрудников по табельному номеру и отделам"""
-        result = {'is_valid': True, 'errors': []}
+        """УДАЛЕНО: Этот метод больше не нужен, так как фильтрация происходит в validator"""
+        # Метод оставлен для совместимости, но всегда возвращает успех
+        # поскольку employees уже отфильтрован в validator
+        return {'is_valid': True, 'errors': []}
+
+    def format_validation_stats(self, validation_result, employees):
+        """ИСПРАВЛЕНО: Форматирует статистику валидации с учетом фильтрации"""
+        total_after_filter = len(employees)
+        unique_tab_numbers = len(set(emp.tab_number for emp in employees))
+        warnings_count = len(validation_result.warnings)
         
-        # Проверяем уникальность табельных номеров
-        tab_numbers = {}
-        for emp in employees:
-            if emp.tab_number in tab_numbers:
-                tab_numbers[emp.tab_number].append(emp.full_name)
-            else:
-                tab_numbers[emp.tab_number] = [emp.full_name]
+        stats = f"• Всего сотрудников после фильтрации: {total_after_filter}\n"
+        stats += f"• Уникальных табельных номеров: {unique_tab_numbers}\n"
         
-        for tab_num, names in tab_numbers.items():
-            if len(names) > 1:
-                result['is_valid'] = False
-                result['errors'].append(f"Дублирующийся табельный номер {tab_num}: {', '.join(names)}")
+        if warnings_count > 0:
+            stats += f"• Предупреждений: {warnings_count}"
         
-        # Проверяем, что один сотрудник не находится в разных отделах
-        employee_departments = {}
-        for emp in employees:
-            key = f"{emp.full_name}_{emp.tab_number}"
-            if key in employee_departments:
-                if employee_departments[key] != emp.department1:
-                    result['is_valid'] = False
-                    result['errors'].append(f"Сотрудник {emp.full_name} ({emp.tab_number}) находится в разных подразделениях: {employee_departments[key]} и {emp.department1}")
-            else:
-                employee_departments[key] = emp.department1
-        
-        return result
-    
+        return stats
+
     def on_validation_error(self, error_message):
         """Обработчик ошибки валидации"""
         self.add_info(f"Ошибка валидации: {error_message}", "error")
-        messagebox.showerror("Ошибка валидации", error_message)
+        messagebox.showerror("Ошибка валидации", error_message, parent=self.window)
     
-    def format_validation_stats(self, validation_result, employees):
-        """Форматирует статистику валидации"""
-        stats = f"СТАТИСТИКА ФАЙЛА:\n"
-        stats += f"• Всего сотрудников: {validation_result.employee_count}\n"
-        stats += f"• Уникальных табельных номеров: {validation_result.unique_tab_numbers}\n"
-        
-        if validation_result.warnings:
-            stats += f"• Предупреждений: {len(validation_result.warnings)}"
-        
-        return stats
     
     def _clean_directory_name(self, name: str) -> str:
         """Очищает имя папки от недопустимых символов"""
@@ -590,51 +576,79 @@ class CreateFilesWindow:
         elif self.create_btn['text'] != "Закрыть":
             self.create_btn.config(state=tk.DISABLED)
     
+
     def create_files(self):
         """Создание файлов сотрудников"""
+        print("=== DEBUG: create_files() вызван ===")
+        
         if not self.validation_result or not self.validation_result.is_valid:
+            print("=== DEBUG: Валидация не пройдена ===")
             messagebox.showwarning("Предупреждение", "Сначала выполните валидацию файла")
             return
         
         if not self.output_dir_path:
+            print("=== DEBUG: Нет папки ===")
             messagebox.showwarning("Предупреждение", "Выберите целевую папку")
             return
         
         if not hasattr(self, 'new_employees_count') or self.new_employees_count <= 0:
+            print(f"=== DEBUG: Нет новых сотрудников: {getattr(self, 'new_employees_count', 'НЕТ АТРИБУТА')} ===")
             messagebox.showwarning("Предупреждение", "Нет новых записей для создания")
             return
         
+        print("=== DEBUG: Все проверки пройдены, вызываем start_processing ===")
         self.start_processing()
-    
+
     def start_processing(self):
-        """Начинает процесс создания файлов"""
-        self.is_processing = True
-        self.create_btn.config(state=tk.DISABLED)
-        
-        # Переключаемся на отображение прогресса
-        self.show_progress_view()
-        
-        self.add_info("Начало создания файлов...")
-        
-        def processing_thread():
-            try:
-                # Используем исправленный метод процессора
-                operation_log = self.processor.create_employee_files_to_existing(
-                    self.staff_file_path,
-                    self.output_dir_path,
-                    self.on_progress_update,
-                    self.on_department_progress_update,
-                    self.on_file_progress_update
-                )
-                
-                # Завершение в главном потоке
-                self.window.after(0, self.on_processing_complete, operation_log)
-                
-            except Exception as e:
-                self.window.after(0, self.on_processing_error, str(e))
-        
-        threading.Thread(target=processing_thread, daemon=True).start()
-    
+            """Начинает процесс создания файлов"""
+            print("=== DEBUG: start_processing() вызван ===")
+            print(f"is_processing: {self.is_processing}")
+            print(f"validation_result: {self.validation_result}")
+            print(f"validation_result.is_valid: {self.validation_result.is_valid if self.validation_result else 'None'}")
+            print(f"staff_file_path: {self.staff_file_path}")
+            print(f"output_dir_path: {self.output_dir_path}")
+            print(f"new_employees_count: {getattr(self, 'new_employees_count', 'НЕТ АТРИБУТА')}")
+            
+            self.is_processing = True
+            self.create_btn.config(state=tk.DISABLED)
+            
+            # Переключаемся на отображение прогресса
+            print("=== DEBUG: Переключение на прогресс ===")
+            self.show_progress_view()
+            
+            self.add_info("Начало создания файлов...")
+            print("=== DEBUG: Добавили info, запускаем поток ===")
+            
+            def processing_thread():
+                try:
+                    print("=== DEBUG: Поток запущен, вызываем процессор ===")
+                    print(f"Параметры: {self.staff_file_path}, {self.output_dir_path}")
+                    
+                    # ИСПРАВЛЕНО: Убираем названия параметров
+                    operation_log = self.processor.create_employee_files_to_existing(
+                        self.staff_file_path,
+                        self.output_dir_path,
+                        self.on_progress_update,
+                        self.on_department_progress_update,
+                        self.on_file_progress_update
+                    )
+                    
+                    print("=== DEBUG: Процессор завершен, планируем завершение ===")
+                    # Завершение в главном потоке
+                    self.window.after(0, self.on_processing_complete, operation_log)
+                    
+                except Exception as e:
+                    print(f"=== DEBUG: ОШИБКА В ПОТОКЕ: {e} ===")
+                    import traceback
+                    traceback.print_exc()
+                    self.window.after(0, self.on_processing_error, str(e))
+            
+            print("=== DEBUG: Создаем поток ===")
+            thread = threading.Thread(target=processing_thread, daemon=True)
+            print("=== DEBUG: Запускаем поток ===")
+            thread.start()
+            print("=== DEBUG: Поток запущен, выходим из start_processing ===")
+
     def show_progress_view(self):
         """Показывает область прогресса вместо информации"""
         self.info_frame.grid_remove()
@@ -644,108 +658,151 @@ class CreateFilesWindow:
         """Показывает область информации вместо прогресса"""
         self.progress_frame.grid_remove()
         self.info_frame.grid(row=1, column=0, columnspan=3, pady=(0, 10), sticky=(tk.W, tk.E, tk.N, tk.S))
-    
+
     def on_progress_update(self, progress):
-        """Обработчик обновления общего прогресса"""
-        def update_ui():
-            # Общий процент
-            if progress.total_files > 0:
-                overall_percent = (progress.processed_files / progress.total_files) * 100
-                self.overall_progress_label.config(text=f"Общий прогресс: {overall_percent:.1f}%")
+            """ИСПРАВЛЕНО: Обработчик обновления общего прогресса"""
+            def update_ui():
+                try:
+                    # Проверяем что окно еще существует
+                    if not self.window.winfo_exists():
+                        return
+                        
+                    # Общий процент
+                    if progress.total_files > 0:
+                        overall_percent = (progress.processed_files / progress.total_files) * 100
+                        self.overall_progress_label.config(text=f"Общий прогресс: {overall_percent:.1f}%")
+                    
+                    # Время
+                    if hasattr(progress, 'start_time') and progress.start_time:
+                        elapsed = (datetime.now() - progress.start_time).total_seconds()
+                        if progress.processed_files > 0 and progress.total_files > 0:
+                            speed = progress.processed_files / elapsed  # файлов в секунду
+                            remaining_files = progress.total_files - progress.processed_files
+                            remaining_time = remaining_files / speed if speed > 0 else 0
+                            self.time_label.config(
+                                text=f"Прошло: {elapsed:.0f} сек, Осталось: {remaining_time:.0f} сек"
+                            )
+                        else:
+                            self.time_label.config(text=f"Прошло: {elapsed:.0f} сек")
+                            
+                except tk.TclError:
+                    # Окно уже закрыто, игнорируем
+                    pass
             
-            # Время
-            elapsed = (datetime.now() - progress.start_time).total_seconds()
-            if progress.processed_files > 0 and progress.total_files > 0:
-                speed = progress.processed_files / elapsed  # файлов в секунду
-                remaining_files = progress.total_files - progress.processed_files
-                remaining_time = remaining_files / speed if speed > 0 else 0
-                self.time_label.config(
-                    text=f"Прошло: {elapsed:.0f} сек, Осталось: {remaining_time:.0f} сек"
-                )
-            else:
-                self.time_label.config(text=f"Прошло: {elapsed:.0f} сек")
-        
-        self.window.after(0, update_ui)
-    
+            # ИСПРАВЛЕНО: Используем правильный метод для обновления в главном потоке
+            try:
+                if self.window.winfo_exists():
+                    self.window.after(0, update_ui)
+            except tk.TclError:
+                pass
+
     def on_department_progress_update(self, current_dept, total_depts, dept_name):
-        """Обработчик обновления прогресса по отделам"""
-        def update_ui():
-            if total_depts > 0:
-                dept_percent = (current_dept / total_depts) * 100
-                self.departments_progress_bar['value'] = dept_percent
-                self.departments_detail_label.config(
-                    text=f"Отдел {current_dept}/{total_depts}: {dept_name}"
-                )
-        
-        self.window.after(0, update_ui)
-    
+            """ИСПРАВЛЕНО: Обработчик обновления прогресса по отделам"""
+            def update_ui():
+                try:
+                    if not self.window.winfo_exists():
+                        return
+                        
+                    if total_depts > 0:
+                        dept_percent = (current_dept / total_depts) * 100
+                        self.departments_progress_bar['value'] = dept_percent
+                        self.departments_detail_label.config(
+                            text=f"Отдел {current_dept}/{total_depts}: {dept_name}"
+                        )
+                except tk.TclError:
+                    pass
+            
+            try:
+                if self.window.winfo_exists():
+                    self.window.after(0, update_ui)
+            except tk.TclError:
+                pass
+
     def on_file_progress_update(self, current_file, total_files, file_info):
-        """Обработчик обновления прогресса по файлам в текущем отделе"""
-        def update_ui():
-            if total_files > 0:
-                file_percent = (current_file / total_files) * 100
-                self.employees_progress_bar['value'] = file_percent
-                self.employees_detail_label.config(
-                    text=f"Файл {current_file}/{total_files}: {file_info}"
-                )
-        
-        self.window.after(0, update_ui)
+            """ИСПРАВЛЕНО: Обработчик обновления прогресса по файлам в текущем отделе"""
+            def update_ui():
+                try:
+                    if not self.window.winfo_exists():
+                        return
+                        
+                    if total_files > 0:
+                        file_percent = (current_file / total_files) * 100
+                        self.employees_progress_bar['value'] = file_percent
+                        self.employees_detail_label.config(
+                            text=f"Файл {current_file}/{total_files}: {file_info}"
+                        )
+                except tk.TclError:
+                    pass
+            
+            try:
+                if self.window.winfo_exists():
+                    self.window.after(0, update_ui)
+            except tk.TclError:
+                pass
 
     def on_processing_complete(self, operation_log):
-        """Обработчик завершения создания файлов"""
-        self.is_processing = False
-        
-        if operation_log.status == ProcessingStatus.SUCCESS:
-            # Добавляем результат в существующую информацию
-            self.add_info_to_existing("")
-            self.add_info_to_existing("=" * 50)
-            self.add_info_to_existing("СОЗДАНИЕ ФАЙЛОВ УСПЕШНО ЗАВЕРШЕНО!", "success")
-            self.add_info_to_existing(f"Время выполнения: {operation_log.duration:.1f} сек")
-            self.add_info_to_existing("=" * 50)
-            self.add_info_to_existing("")
+            """ИСПРАВЛЕНО: Обработчик завершения создания файлов"""
+            try:
+                if not self.window.winfo_exists():
+                    return
+            except tk.TclError:
+                return
+                
+            self.is_processing = False
             
-            # Добавляем информацию о результатах операции
-            for entry in operation_log.entries:
-                if entry.level == "INFO":
-                    # ИСПРАВЛЕНИЕ: Убираем зеленое выделение для ИТОГ сообщений по отделам
-                    if ("Отдел" in entry.message and "создано" in entry.message) or entry.message.startswith("Создано файлов"):
-                        self.add_info_to_existing(f"ИТОГ: {entry.message}")  # Обычный текст
-                    else:
+            if operation_log.status == ProcessingStatus.SUCCESS:
+                # Добавляем результат в существующую информацию
+                self.add_info_to_existing("")
+                self.add_info_to_existing("=" * 50)
+                self.add_info_to_existing("СОЗДАНИЕ ФАЙЛОВ УСПЕШНО ЗАВЕРШЕНО!", "success")
+                if hasattr(operation_log, 'duration') and operation_log.duration:
+                    self.add_info_to_existing(f"Время выполнения: {operation_log.duration:.1f} сек")
+                self.add_info_to_existing("=" * 50)
+                self.add_info_to_existing("")
+                
+                # Добавляем информацию о результатах операции
+                for entry in operation_log.entries:
+                    if entry.level == "INFO":
                         self.add_info_to_existing(f"  • {entry.message}")
+                
+            else:
+                self.add_info_to_existing("")
+                self.add_info_to_existing("СОЗДАНИЕ ФАЙЛОВ ЗАВЕРШЕНО С ОШИБКАМИ!", "error")
+                
+                # Показываем ошибки
+                for entry in operation_log.entries:
+                    if entry.level == "ERROR":
+                        self.add_info_to_existing(f"  • {entry.message}", "error")
             
             # Возвращаемся к отображению информации
             self.show_info_view()
             
-            # ИСПРАВЛЕНИЕ: Всегда показываем кнопку "Закрыть"
+            # Показываем кнопку "Закрыть"
             self.create_btn.config(text="Закрыть", command=self.on_closing, state=tk.NORMAL)
-            
-        else:
-            self.add_info_to_existing("")
-            self.add_info_to_existing("СОЗДАНИЕ ФАЙЛОВ ЗАВЕРШЕНО С ОШИБКАМИ!", "error")
-            
-            # Показываем ошибки
-            for entry in operation_log.entries:
-                if entry.level == "ERROR":
-                    self.add_info_to_existing(f"ОШИБКА: {entry.message}", "error")
-            
-            # Возвращаемся к отображению информации
-            self.show_info_view()
-            self.create_btn.config(text="Закрыть", command=self.on_closing, state=tk.NORMAL)
-            
-            # Показываем messagebox с ошибкой
-            messagebox.showerror("Ошибка создания файлов", "Создание файлов завершено с ошибками. См. подробности в окне.")
 
     def on_processing_error(self, error_message):
-        """Обработчик ошибки создания файлов"""
+        """ИСПРАВЛЕНО: Обработчик ошибки обработки"""
+        try:
+            if not self.window.winfo_exists():
+                return
+        except tk.TclError:
+            return
+            
         self.is_processing = False
-        self.create_btn.config(text="Закрыть", command=self.on_closing, state=tk.NORMAL)
         
-        self.add_info(f"Критическая ошибка: {error_message}", "error")
-        messagebox.showerror("Критическая ошибка", error_message)
+        self.add_info_to_existing("")
+        self.add_info_to_existing("КРИТИЧЕСКАЯ ОШИБКА ПРИ СОЗДАНИИ ФАЙЛОВ!", "error")
+        self.add_info_to_existing(f"Ошибка: {error_message}", "error")
         
         # Возвращаемся к отображению информации
         self.show_info_view()
-    
+        
+        # Показываем кнопку "Перезапустить"
+        self.create_btn.config(text="Перезапустить", command=self.restart_process, state=tk.NORMAL)
+        
+        messagebox.showerror("Ошибка", f"Критическая ошибка при создании файлов:\n{error_message}")
+
+
     def copy_selected_text(self):
         """Копирует выделенный текст в буфер обмена"""
         try:
@@ -800,9 +857,25 @@ class CreateFilesWindow:
         self.parent.update_idletasks()
     
     def add_info_to_existing(self, message: str, level: str = "info"):
-        """Добавляет информацию в существующий текст без временной метки"""
-        # Определяем цвет и стиль для разных уровней
-        # Красный или зеленый цвет и всегда жирный шрифт для важных сообщений
+        """ИСПРАВЛЕНО: Добавляет информацию к существующему тексту"""
+        try:
+            if not self.window.winfo_exists():
+                return
+        except tk.TclError:
+            return
+            
+        # Переключаемся обратно на info view если мы в progress view
+        current_frame = None
+        try:
+            if self.info_frame.winfo_viewable():
+                current_frame = "info"
+            elif self.progress_frame.winfo_viewable():
+                current_frame = "progress"
+                self.show_info_view()  # Переключаемся на info
+        except tk.TclError:
+            pass
+        
+        # Добавляем сообщение
         if level in ["success", "error", "warning"]:
             colors = {
                 "warning": "#FF8C00",
