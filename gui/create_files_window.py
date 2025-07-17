@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Optional, Dict
 import re
 from datetime import datetime
+import os
 
 
 from config import Config
@@ -29,7 +30,7 @@ class CreateFilesWindow:
         self.config = config
         self.main_window = main_window
         self.logger = logging.getLogger(__name__)
-        self.processor = VacationProcessor(config)
+        self.processor = VacationProcessor(config, window_ref=self)
         
         # Состояние
         self.staff_file_path = ""
@@ -44,12 +45,19 @@ class CreateFilesWindow:
         self.file_reselected = False
         self.dir_reselected = False
         
+        # Для отката созданных файлов и папок
+        self.created_files = []
+        self.created_dirs = []
+        self._rollback_in_progress = False
+        self._rollback_lock = threading.Lock()
+        
         # Создаем окно
         self.window = None
         self.created_count_label = tk.Label(self.window, text="Создано: 0")
         self.created_count_label.grid(row=0, column=0, sticky='w')
         # Инициализация переменной прогресса для совместимости с on_processing_complete
         self.progress_var = tk.IntVar(value=0)
+        self.stop_processing = False
         self.setup_ui()
 
     def setup_ui(self):
@@ -332,6 +340,20 @@ class CreateFilesWindow:
                     clean_dept = self._clean_directory_name(emp['Подразделение 1'])
                     expected_departments.add((emp['Подразделение 1'], clean_dept))
             
+            # --- Формируем список сотрудников для создания файлов ---
+            employees_to_create = []
+            for emp in self._employees:
+                dept = emp['Подразделение 1']
+                if not dept:
+                    continue
+                clean_dept = self._clean_directory_name(dept)
+                dept_path = base_path / clean_dept
+                filename = self.processor.excel_handler.generate_output_filename(emp)
+                file_path = dept_path / filename
+                if not file_path.exists():
+                    employees_to_create.append(emp)
+            self._employees_to_create = employees_to_create
+            
             existing_departments = []
             new_departments = []
             total_existing_employees = 0
@@ -365,8 +387,8 @@ class CreateFilesWindow:
             new_departments = list(all_departments_from_file - set(existing_departments))
             
             # Подсчитываем новых сотрудников
-            self.new_employees_count = max(0, len(self._employees) - total_existing_employees)
-            self.skip_employees_count = total_existing_employees
+            self.new_employees_count = len(self._employees_to_create)
+            self.skip_employees_count = len(self._employees) - self.new_employees_count
             
             # Выводим информацию в новом формате
             if existing_departments or new_departments:
@@ -478,7 +500,7 @@ class CreateFilesWindow:
                     self.add_info("")
                     self.add_info("НАЙДЕНЫ ПРОБЛЕМЫ:", "warning")
                     for warning in self.validation_result.warnings:
-                        self.add_info(f"  • {warning}", "warning")
+                        self.add_info(f"  • {warning}")
                 
                 self.add_info("")
                 self.add_info("СТАТИСТИКА ФАЙЛА:", "success")
@@ -577,7 +599,13 @@ class CreateFilesWindow:
             self.create_btn['text'] != "Закрыть"):
             
             self.create_btn.config(state=tk.NORMAL, text="Создать файлы", command=self.create_files)
-        elif self.create_btn['text'] != "Закрыть":
+        elif self.create_btn['text'] == "Закрыть":
+            self.create_btn.config(
+                text="Создать файлы",
+                state=tk.DISABLED,  # или tk.NORMAL, если все условия выполнены
+                command=self.create_files
+            )
+        else:
             self.create_btn.config(state=tk.DISABLED)
     
 
@@ -616,16 +644,23 @@ class CreateFilesWindow:
             
             def processing_thread():
                 try:
+                    # Передаем только сотрудников, для которых нужно создавать файлы
+                    employees_to_create = getattr(self, '_employees_to_create', None)
                     operation_log = self.processor.create_employee_files_to_existing(
                         self.staff_file_path,
                         self.output_dir_path,
                         self.on_progress_update,
                         self.on_department_progress_update,
-                        self.on_file_progress_update
+                        self.on_file_progress_update,
+                        employees_to_create=employees_to_create
                     )
                     
                     # Завершение в главном потоке
-                    self.window.after(0, self.on_processing_complete, operation_log)
+                    def after_processing():
+                        if self.stop_processing:
+                            self.rollback_created_files()
+                        self.window.after(0, self.on_processing_complete, operation_log)
+                    self.window.after(0, after_processing)
                     
                 except Exception as e:
                     self.logger.error(f"Ошибка в потоке обработки: {e}")
@@ -852,6 +887,12 @@ class CreateFilesWindow:
             # Устанавливаем флаг завершения
             self.is_processing = False
             
+            if hasattr(self, 'create_btn'):
+                self.create_btn.config(
+                    text="Закрыть",
+                    state=tk.NORMAL,
+                    command=self.on_closing
+                )
             
         except Exception as e:
             import traceback
@@ -1038,7 +1079,31 @@ class CreateFilesWindow:
             )
             if not result:
                 return
-        
+            self.stop_processing = True
+            # Не вызываем rollback здесь! Откат будет вызван после завершения потока
         self.window.destroy()
         if self.main_window:
             self.main_window.on_window_closed("create_files")
+
+    # --- ОТКАТ СОЗДАННЫХ ФАЙЛОВ ---
+    def rollback_created_files(self):
+        """Удаляет все созданные в этом запуске файлы и новые папки (если они пусты)"""
+        with self._rollback_lock:
+            self._rollback_in_progress = True
+            # Удаляем файлы
+            for file_path in reversed(self.created_files):
+                try:
+                    if os.path.isfile(file_path):
+                        os.remove(file_path)
+                except Exception:
+                    pass
+            # Удаляем новые папки, если они пусты
+            for dir_path in reversed(self.created_dirs):
+                try:
+                    if os.path.isdir(dir_path) and not os.listdir(dir_path):
+                        os.rmdir(dir_path)
+                except Exception:
+                    pass
+            self.created_files.clear()
+            self.created_dirs.clear()
+            self._rollback_in_progress = False

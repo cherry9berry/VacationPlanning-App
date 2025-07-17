@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
 Модуль работы с Excel файлами
@@ -10,7 +9,6 @@ from pathlib import Path
 from datetime import datetime, date
 from typing import List, Optional, Dict, Tuple, Any
 import re
-import time
 
 import openpyxl
 from openpyxl.styles import Border, Side
@@ -23,44 +21,33 @@ from core.performance_tracker import PerformanceTracker, FilePerformanceStats
 class ExcelHandler:
     """Класс для работы с Excel файлами"""
 
-
     def __init__(self, config):
         self.config = config
         self.logger = logging.getLogger(__name__)
-        # ДОБАВЛЯЕМ КЭШИРОВАНИЕ RULES И ШАБЛОНОВ
         self._cached_rules = {}
         self._cached_templates = {}
-        self._cached_workbooks = {}  # Кэш для открытых шаблонов
+        self._cached_workbooks = {}
         self.performance_tracker = PerformanceTracker()
     
     def _get_cached_rules(self, template_path: str) -> Dict[str, Dict[str, str]]:
         """Получает rules из кэша или загружает их"""
         if template_path not in self._cached_rules:
-            self.logger.debug(f"Загружаем rules в кэш для {template_path}")
             self._cached_rules[template_path] = self._load_filling_rules(template_path)
-        else:
-            self.logger.debug(f"Используем rules из кэша для {template_path}")
-        
         return self._cached_rules[template_path]
     
     def _get_cached_template_workbook(self, template_path: str) -> openpyxl.Workbook:
         """Получает шаблон из кэша или загружает его"""
         if template_path not in self._cached_workbooks:
-            self.logger.debug(f"Загружаем шаблон в кэш: {template_path}")
-            # Загружаем шаблон с оптимальными параметрами
             self._cached_workbooks[template_path] = openpyxl.load_workbook(
                 template_path,
                 data_only=False,
-                read_only=True,  # Только для чтения - быстрее
+                read_only=True,
                 keep_links=False
             )
-        else:
-            self.logger.debug(f"Используем шаблон из кэша: {template_path}")
-        
         return self._cached_workbooks[template_path]
     
     def create_employee_file(self, employee: Dict[str, str], output_path: str) -> bool:
-        """Создает файл сотрудника на основе шаблона с rules - ОПТИМИЗИРОВАННАЯ ВЕРСИЯ"""
+        """Создает файл сотрудника на основе шаблона с rules"""
         file_stats = self.performance_tracker.start_file(employee['ФИО работника'])
         
         try:
@@ -71,13 +58,9 @@ class ExcelHandler:
                 file_stats.finish(False, f"Шаблон не найден: {template_path}")
                 raise FileNotFoundError(f"Шаблон сотрудника не найден: {template_path}")
             
-            # Создаем папку для файла
             Path(output_path).parent.mkdir(parents=True, exist_ok=True)
-            
-            # ОПТИМИЗАЦИЯ 1: Простое копирование файла (быстрее чем работа с openpyxl)
             shutil.copy2(template_path, output_path)
             
-            # ОПТИМИЗАЦИЯ 2: Загружаем rules из кэша
             rules = self._get_cached_rules(str(template_path))
             
             # Подготавливаем данные сотрудника
@@ -88,7 +71,6 @@ class ExcelHandler:
                     value = ''
                 data_dict[field_name] = value
             
-            # ОПТИМИЗАЦИЯ 3: Открываем файл с минимальными параметрами
             workbook = openpyxl.load_workbook(
                 output_path,
                 data_only=False,
@@ -96,10 +78,8 @@ class ExcelHandler:
                 keep_links=False
             )
             
-            # Применяем rules к файлу
             self._apply_rules_to_template(workbook, rules, data_dict)
             
-            # Сохраняем файл
             workbook.save(output_path)
             workbook.close()
             
@@ -112,11 +92,10 @@ class ExcelHandler:
             return False
 
     def _apply_rules_to_template(self, workbook, rules: Dict[str, Dict[str, str]], data_dict: Dict[str, Any]):
-        """Применяет правила заполнения к шаблону - ОПТИМИЗИРОВАННАЯ ВЕРСИЯ"""
+        """Применяет правила заполнения к шаблону"""
         
         for rule_type, rule_items in rules.items():
             if rule_type == 'value':
-                # Обрабатываем только value rules
                 for cell_address, field_name in rule_items.items():
                     value = data_dict.get(field_name, '')
                     
@@ -126,26 +105,14 @@ class ExcelHandler:
                         
                     except Exception as e:
                         self.logger.error(f"Ошибка при заполнении {cell_address}: {e}")
-                        
-            elif rule_type == 'header':
-                # Для header - пропускаем, оставляем как есть в шаблоне
-                continue
-            elif rule_type == 'read':
-                # Для read - пропускаем, это для чтения данных из файлов сотрудников
-                continue
-            else:
-                # Неизвестный тип rule - пропускаем
-                continue
 
     def _parse_cell_address(self, address: str) -> tuple:
         """Парсит адрес ячейки, возвращает (is_formula, clean_address, sheet_name)"""
         is_formula = address.startswith('=')
         
         if is_formula:
-            # Убираем знак равенства и извлекаем адрес
             formula = address[1:]
             
-            # Простой парсинг для формул вида 'Лист'!A1
             if '!' in formula:
                 sheet_part, cell_part = formula.split('!', 1)
                 sheet_name = sheet_part.strip("'\"")
@@ -154,130 +121,122 @@ class ExcelHandler:
                 sheet_name = None
                 clean_address = formula.strip()
         else:
-            # Обычный адрес - может быть именованный диапазон
             sheet_name = None
             clean_address = address.strip()
         
         return is_formula, clean_address, sheet_name
 
-    def _fill_cell_or_range(self, workbook, sheet_name: str, address: str, value):
-        """Заполняет ячейку или диапазон значением с правильным типом данных"""
-        self.logger.debug(f"Заполняем лист='{sheet_name}', адрес='{address}', значение='{value}'")
-        
-        # Преобразуем значение к правильному типу
-        converted_value = self._convert_value_type(value)
-        
-        try:
-            # Определяем активный лист
-            if sheet_name:
-                if sheet_name in workbook.sheetnames:
-                    worksheet = workbook[sheet_name]
-                    self.logger.debug(f"Используем лист '{sheet_name}'")
-                else:
-                    self.logger.debug(f"Лист '{sheet_name}' не найден, используем первый лист")
-                    worksheet = workbook.worksheets[0]
-            else:
-                worksheet = workbook.worksheets[0]
-                self.logger.debug("Используем первый лист")
-            
-            # Проверяем, является ли адрес стандартным (A1, B2, etc.)
-            import re
-            if re.match(r'^[A-Z]+[0-9]+$', address):
-                # Стандартный адрес ячейки
-                worksheet[address] = converted_value
-                self.logger.debug(f"Заполнили стандартную ячейку {address} значением '{converted_value}' (тип: {type(converted_value)})")
-            elif ':' in address:
-                # Это диапазон - заполняем первую ячейку
-                start_cell = address.split(':')[0]
-                if re.match(r'^[A-Z]+[0-9]+$', start_cell):
-                    worksheet[start_cell] = converted_value
-                    self.logger.debug(f"Заполнили первую ячейку диапазона {start_cell} значением '{converted_value}'")
-                else:
-                    self.logger.warning(f"Неверный формат диапазона {address}")
-            else:
-                # Возможно именованный диапазон или нестандартный адрес
-                self.logger.debug(f"Попытка заполнить именованный диапазон или нестандартный адрес '{address}'")
-                try:
-                    # Попробуем найти именованный диапазон
-                    if address in workbook.defined_names:
-                        self.logger.debug(f"Найден именованный диапазон '{address}'")
-                        # Для именованного диапазона получаем его адрес
-                        defn = workbook.defined_names[address]
-                        if defn.attr_text:
-                            # Парсим адрес именованного диапазона
-                            range_text = defn.attr_text
-                            self.logger.debug(f"Адрес именованного диапазона: '{range_text}'")
-                            
-                            # Простой парсинг для Sheet1!$A$1 формата
-                            if '!' in range_text:
-                                sheet_part, cell_part = range_text.split('!', 1)
-                                cell_part = cell_part.replace('$', '')  # Убираем символы $
-                                if re.match(r'^[A-Z]+[0-9]+$', cell_part):
-                                    worksheet[cell_part] = converted_value
-                                    self.logger.debug(f"Заполнили именованный диапазон {cell_part} значением '{converted_value}'")
-                                else:
-                                    self.logger.warning(f"Неверный формат ячейки в именованном диапазоне: '{cell_part}'")
-                            else:
-                                self.logger.warning(f"Неверный формат именованного диапазона: '{range_text}'")
-                    else:
-                        self.logger.debug(f"Именованный диапазон '{address}' не найден")
-                        # Попытаемся обработать как обычную ячейку
-                        worksheet[address] = converted_value
-                        self.logger.debug(f"Заполнили как обычную ячейку '{address}' значением '{converted_value}'")
-                except Exception as e2:
-                    self.logger.error(f"Ошибка при работе с именованным диапазоном: {e2}")
-                    raise e2
-                    
-        except Exception as e:
-            self.logger.error(f"Ошибка при заполнении {address}: {e}")
-            # Попробуем через координаты
-            try:
-                from openpyxl.utils import coordinate_to_tuple
-                if re.match(r'^[A-Z]+[0-9]+$', address):
-                    row, col = coordinate_to_tuple(address)
-                    worksheet = workbook.worksheets[0]
-                    worksheet.cell(row=row, column=col, value=converted_value)
-                    self.logger.debug(f"Заполнили через координаты row={row}, col={col} значением '{converted_value}'")
-                else:
-                    self.logger.warning(f"Не могу преобразовать адрес '{address}' в координаты")
-                    raise e
-            except Exception as e2:
-                self.logger.error(f"Ошибка при заполнении через координаты: {e2}")
-                raise e2
-    
     def _convert_value_type(self, value):
         """Преобразует значение к правильному типу данных для Excel"""
         if value is None or value == '':
             return ''
         
-        # Если это уже число, возвращаем как есть
         if isinstance(value, (int, float)):
-            return value
+            return float(value)
         
-        # Преобразуем в строку для дальнейшей обработки
         str_value = str(value).strip()
         
         if not str_value:
             return ''
         
-        # Попытка преобразовать в число
+        # Проверяем является ли параметр числом
         try:
-            # Сначала пробуем целое число
-            if '.' not in str_value and ',' not in str_value:
-                # Проверяем, что это только цифры (возможно с минусом)
-                if str_value.lstrip('-').isdigit():
-                    return int(str_value)
-            
-            # Попытка преобразовать в float
-            # Заменяем запятую на точку для российского формата
-            float_value = str_value.replace(',', '.')
-            if self._is_float(float_value):
-                return float(float_value)
+            # Убираем пробелы и неразрывные пробелы
+            clean_value = str_value.replace(' ', '').replace('\xa0', '')
+            # Заменяем запятую на точку
+            clean_value = clean_value.replace(',', '.')
+            # Пытаемся преобразовать в float
+            float_val = float(clean_value)
+            return float_val
         except (ValueError, TypeError):
             pass
         
-        # Если не удалось преобразовать в число, возвращаем как строку
         return str_value
+    
+    def _fill_cell_or_range(self, workbook, sheet_name: str, address: str, value):
+        """Заполняет ячейку или диапазон значением с правильным типом данных"""
+        converted_value = self._convert_value_type(value)
+        
+        try:
+            if sheet_name:
+                if sheet_name in workbook.sheetnames:
+                    worksheet = workbook[sheet_name]
+                else:
+                    worksheet = workbook.worksheets[0]
+            else:
+                worksheet = workbook.worksheets[0]
+            
+            # Проверяем тип адреса
+            if re.match(r'^[A-Z]+[0-9]+$', address):
+                # Стандартный адрес ячейки
+                cell = worksheet[address]
+                cell.value = converted_value
+                # Принудительно устанавливаем тип данных
+                if isinstance(converted_value, (int, float)):
+                    cell.data_type = 'n'
+                    cell.number_format = '0' if isinstance(converted_value, int) else '0.00'
+                elif isinstance(converted_value, str) and converted_value != '':
+                    cell.data_type = 's'
+                    
+            elif ':' in address:
+                # Диапазон - заполняем первую ячейку
+                start_cell = address.split(':')[0]
+                if re.match(r'^[A-Z]+[0-9]+$', start_cell):
+                    cell = worksheet[start_cell]
+                    cell.value = converted_value
+                    if isinstance(converted_value, (int, float)):
+                        cell.data_type = 'n'
+                        cell.number_format = '0' if isinstance(converted_value, int) else '0.00'
+                    elif isinstance(converted_value, str) and converted_value != '':
+                        cell.data_type = 's'
+            else:
+                # Именованный диапазон
+                if address in workbook.defined_names:
+                    defn = workbook.defined_names[address]
+                    if defn.attr_text:
+                        range_text = defn.attr_text
+                        
+                        if '!' in range_text:
+                            sheet_part, cell_part = range_text.split('!', 1)
+                            cell_part = cell_part.replace('$', '')
+                            if re.match(r'^[A-Z]+[0-9]+$', cell_part):
+                                cell = worksheet[cell_part]
+                                cell.value = converted_value
+                                if isinstance(converted_value, (int, float)):
+                                    cell.data_type = 'n'
+                                    cell.number_format = '0' if isinstance(converted_value, int) else '0.00'
+                                elif isinstance(converted_value, str) and converted_value != '':
+                                    cell.data_type = 's'
+                else:
+                    # Попытка заполнить как обычную ячейку
+                    cell = worksheet[address]
+                    cell.value = converted_value
+                    if isinstance(converted_value, (int, float)):
+                        cell.data_type = 'n'
+                        cell.number_format = '0' if isinstance(converted_value, int) else '0.00'
+                    elif isinstance(converted_value, str) and converted_value != '':
+                        cell.data_type = 's'
+                    
+        except Exception as e:
+            self.logger.error(f"Ошибка при заполнении {address}: {e}")
+            # Fallback через координаты
+            try:
+                from openpyxl.utils import coordinate_to_tuple
+                if re.match(r'^[A-Z]+[0-9]+$', address):
+                    row, col = coordinate_to_tuple(address)
+                    worksheet = workbook.worksheets[0]
+                    cell = worksheet.cell(row=row, column=col)
+                    cell.value = converted_value
+                    if isinstance(converted_value, (int, float)):
+                        cell.data_type = 'n'
+                        cell.number_format = '0' if isinstance(converted_value, int) else '0.00'
+                    elif isinstance(converted_value, str) and converted_value != '':
+                        cell.data_type = 's'
+                else:
+                    raise e
+            except Exception as e2:
+                self.logger.error(f"Ошибка при заполнении через координаты: {e2}")
+                raise e2
     
     def _is_float(self, value: str) -> bool:
         """Проверяет, является ли строка числом с плавающей точкой"""
@@ -298,17 +257,6 @@ class ExcelHandler:
         self._cached_workbooks.clear()
         self._cached_rules.clear()
         self._cached_templates.clear()
-        self.logger.info("Кэш очищен")
-
-
-
-
-
-
-
-
-
-
 
     def _load_filling_rules(self, template_path: str) -> Dict[str, Dict[str, str]]:
         """Загружает правила заполнения из листа 'rules'"""
@@ -323,21 +271,21 @@ class ExcelHandler:
         rules_sheet = workbook['rules']
         
         for row in range(2, rules_sheet.max_row + 1):
-            source_cell = rules_sheet.cell(row=row, column=1)
-            target_cell = rules_sheet.cell(row=row, column=2)
-            type_cell = rules_sheet.cell(row=row, column=3)
+            target_cell = rules_sheet.cell(row=row, column=1)  # Столбец A - КУДА
+            source_cell = rules_sheet.cell(row=row, column=2)  # Столбец B - ЧТО
+            type_cell = rules_sheet.cell(row=row, column=3)    # Столбец C - ТИП
             
-            source_address = source_cell.value if source_cell.data_type == 'f' else source_cell.value
-            target_field = target_cell.value
+            target_address = target_cell.value if target_cell.data_type == 'f' else target_cell.value
+            source_field = source_cell.value
             rule_type = type_cell.value
             
-            if source_address and target_field and rule_type:
-                source_address = str(source_address).strip()
-                target_field = str(target_field).strip()
+            if target_address and source_field and rule_type:
+                target_address = str(target_address).strip()
+                source_field = str(source_field).strip()
                 rule_type = str(rule_type).strip().lower()
                 
                 if rule_type in ['value', 'header', 'read']:
-                    rules[rule_type][source_address] = target_field
+                    rules[rule_type][target_address] = source_field
         
         workbook.close()
         
@@ -349,33 +297,73 @@ class ExcelHandler:
     def read_vacation_info_from_file(self, file_path: str) -> Optional[VacationInfo]:
         """Читает информацию об отпусках из файла сотрудника"""
         try:
-            workbook = openpyxl.load_workbook(file_path, data_only=True)
+            # Загружаем файл с вычислением формул
+            workbook = openpyxl.load_workbook(file_path, data_only=False, read_only=False)
             
-            # Получаем структуру из конфига
+            # Принудительно пересчитываем формулы
+            for worksheet in workbook.worksheets:
+                for row in worksheet.iter_rows():
+                    for cell in row:
+                        if cell.data_type == 'f':
+                            try:
+                                _ = cell.value
+                            except:
+                                pass
+            
+            # Получаем rules из шаблона сотрудника для чтения данных
+            template_path = Path(self.config.employee_template)
+            if template_path.exists():
+                rules = self._get_cached_rules(str(template_path))
+                value_rules = rules.get('value', {})
+            else:
+                value_rules = {}
+            
+            # Читаем данные сотрудника по rules
+            worksheet = workbook.worksheets[0]
+            employee = {}
+            
+            # Используем value rules для чтения данных
+            if value_rules:
+                for cell_address, field_name in value_rules.items():
+                    try:
+                        is_formula, clean_address, sheet_name = self._parse_cell_address(cell_address)
+                        if sheet_name and sheet_name in workbook.sheetnames:
+                            ws = workbook[sheet_name]
+                        else:
+                            ws = worksheet
+                        
+                        value = self._get_cell_value(ws, clean_address)
+                        if value is not None:
+                            employee[field_name] = str(value).strip()
+                        else:
+                            employee[field_name] = ""
+                    except Exception as e:
+                        self.logger.warning(f"Ошибка чтения {cell_address} для {field_name}: {e}")
+                        employee[field_name] = ""
+            
+            # Если нет rules, используем fallback из конфига
+            if not employee:
+                file_structure = self.config.employee_file_structure
+                dept_cells = file_structure.get("department_cells", {})
+                employee_cols = file_structure.get("employee_columns", {})
+                data_rows = file_structure.get("employee_data_rows", {"start": 15, "end": 29})
+                
+                employee = {
+                    "ФИО работника": str(self._get_cell_value(worksheet, f"{employee_cols.get('full_name', 'C')}{data_rows['start']}") or "").strip(),
+                    "Табельный номер": str(self._get_cell_value(worksheet, f"{employee_cols.get('tab_number', 'B')}{data_rows['start']}") or "").strip(),
+                    "Должность": str(self._get_cell_value(worksheet, f"{employee_cols.get('position', 'D')}{data_rows['start']}") or "").strip(),
+                    "Подразделение 1": str(self._get_cell_value(worksheet, dept_cells.get("department1", "C2")) or "").strip(),
+                    "Подразделение 2": str(self._get_cell_value(worksheet, dept_cells.get("department2", "C3")) or "").strip(),
+                    "Подразделение 3": str(self._get_cell_value(worksheet, dept_cells.get("department3", "C4")) or "").strip(),
+                    "Подразделение 4": str(self._get_cell_value(worksheet, dept_cells.get("department4", "C5")) or "").strip()
+                }
+            
+            # Читаем периоды отпусков из конфига
             file_structure = self.config.employee_file_structure
-            sheet_index = file_structure.get("active_sheet_index", 0)
-            worksheet = workbook.worksheets[sheet_index]
-            
-            # Получаем настройки структуры файла
-            dept_cells = file_structure.get("department_cells", {})
-            employee_cols = file_structure.get("employee_columns", {})
-            data_rows = file_structure.get("employee_data_rows", {"start": 15, "end": 29})
             vacation_columns = file_structure.get("vacation_columns", {})
+            data_rows = file_structure.get("employee_data_rows", {"start": 15, "end": 29})
             
-            # Создаем словарь сотрудника
-            employee = {
-                "ФИО работника": str(self._get_cell_value(worksheet, f"{employee_cols.get('full_name', 'C')}{data_rows['start']}") or "").strip(),
-                "Табельный номер": str(self._get_cell_value(worksheet, f"{employee_cols.get('tab_number', 'B')}{data_rows['start']}") or "").strip(),
-                "Должность": str(self._get_cell_value(worksheet, f"{employee_cols.get('position', 'D')}{data_rows['start']}") or "").strip(),
-                "Подразделение 1": str(self._get_cell_value(worksheet, dept_cells.get("department1", "C2")) or "").strip(),
-                "Подразделение 2": str(self._get_cell_value(worksheet, dept_cells.get("department2", "C3")) or "").strip(),
-                "Подразделение 3": str(self._get_cell_value(worksheet, dept_cells.get("department3", "C4")) or "").strip(),
-                "Подразделение 4": str(self._get_cell_value(worksheet, dept_cells.get("department4", "C5")) or "").strip()
-            }
-            
-            # Читаем периоды отпусков
             periods = []
-            
             for row in range(data_rows["start"], data_rows["end"] + 1):
                 start_date_value = self._get_cell_value(worksheet, f"{vacation_columns.get('start_date', 'E')}{row}")
                 end_date_value = self._get_cell_value(worksheet, f"{vacation_columns.get('end_date', 'F')}{row}")
@@ -398,12 +386,19 @@ class ExcelHandler:
                     self.logger.warning(f"Ошибка обработки периода в строке {row}: {e}")
                     continue
             
-            # Читаем статус из B12 (новая логика)
+            # Читаем статус из ячейки, указанной в конфиге
+            file_structure = self.config.employee_file_structure
             status_cell = file_structure.get("status_cell", "B12")
-            status_value = self._get_cell_value(worksheet, status_cell)
+            
+            # Для статуса нужно загрузить файл с data_only=True чтобы получить вычисленное значение
+            status_wb = openpyxl.load_workbook(file_path, data_only=True)
+            status_ws = status_wb.worksheets[0]
+            status_value = self._get_cell_value(status_ws, status_cell)
+            status_wb.close()
+            
             status_text = str(status_value).strip() if status_value else ""
             
-            # Определяем статус на основе значения в B12
+            # Определяем статус
             statuses = self.config.validation_statuses
             if status_text == statuses["not_filled"]:
                 vacation_status = VacationStatus.NOT_FILLED
@@ -412,17 +407,15 @@ class ExcelHandler:
             elif status_text == statuses["filled_incorrect"]:
                 vacation_status = VacationStatus.FILLED_INCORRECT
             else:
-                # Если статус не распознан, пытаемся определить по содержимому
                 if not periods:
                     vacation_status = VacationStatus.NOT_FILLED
                 elif "некорректно" in status_text.lower() or "ошибка" in status_text.lower():
                     vacation_status = VacationStatus.FILLED_INCORRECT
                 else:
-                    vacation_status = VacationStatus.FILLED_INCORRECT  # По умолчанию
+                    vacation_status = VacationStatus.FILLED_INCORRECT
             
             vacation_info = VacationInfo(employee=employee, periods=periods, status=vacation_status)
             
-            # Для отладки сохраняем текст статуса
             if status_text and vacation_status != VacationStatus.FILLED_CORRECT:
                 vacation_info.validation_errors = [status_text]
             
@@ -435,26 +428,16 @@ class ExcelHandler:
 
     def create_block_report(self, block_name: str, vacation_infos: List[VacationInfo], output_path: str) -> bool:
         """Создает отчет по блоку с использованием rules"""
-        # Пробуем новый шаблон, fallback на старый
-        template_path = Path(self.config.block_report_template.replace("block_report_template.xlsx", "block_report_template v3.xlsx"))
-        if not template_path.exists():
-            template_path = Path(self.config.block_report_template)
-            
+        template_path = Path(self.config.block_report_template)
         if not template_path.exists():
             raise FileNotFoundError(f"Шаблон отчета не найден: {template_path}")
-        
         Path(output_path).parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(template_path, output_path)
-        
         rules = self._load_filling_rules(str(template_path))
         workbook = openpyxl.load_workbook(output_path)
-        
         self._fill_report_with_rules(workbook, block_name, vacation_infos, rules)
-        
         workbook.save(output_path)
         workbook.close()
-        
-        self.logger.info(f"Создан отчет по блоку: {output_path}")
         return True
 
     def _fill_report_with_rules(self, workbook, block_name: str, vacation_infos: List[VacationInfo], rules: Dict[str, Dict[str, str]]):
@@ -462,12 +445,10 @@ class ExcelHandler:
         current_time = datetime.now()
         total_employees = len(vacation_infos)
         
-        # Новая логика подсчета на основе 3 статусов
-        not_filled_count = 0      # "Форма не заполнена"
-        filled_incorrect_count = 0  # "Форма заполнена некорректно"
-        filled_correct_count = 0    # "Форма заполнена корректно"
-        
-        statuses = self.config.validation_statuses
+        # Подсчет статусов
+        not_filled_count = 0
+        filled_incorrect_count = 0
+        filled_correct_count = 0
         
         for vi in vacation_infos:
             if vi.status == VacationStatus.NOT_FILLED:
@@ -477,9 +458,8 @@ class ExcelHandler:
             elif vi.status == VacationStatus.FILLED_CORRECT:
                 filled_correct_count += 1
         
-        # Для совместимости с шаблонами считаем:
-        employees_filled = filled_incorrect_count + filled_correct_count  # Все кроме "не заполнена"
-        employees_correct = filled_correct_count  # Только корректно заполненные
+        employees_filled = filled_incorrect_count + filled_correct_count
+        employees_correct = filled_correct_count
         
         # Данные для заполнения
         report_data = {
@@ -496,17 +476,15 @@ class ExcelHandler:
         # Заполняем таблицы данных
         self._fill_employee_tables(workbook, vacation_infos, rules)
         
-        # Заполняем календарь на Report листе
+        # Заполняем календарь
         if 'Report' in workbook.sheetnames:
             self._fill_calendar_matrix(workbook['Report'], vacation_infos)
 
     def _fill_employee_tables(self, workbook, vacation_infos: List[VacationInfo], rules: Dict[str, Dict[str, str]]):
         """Заполняет таблицы сотрудников на Report и Print листах"""
-        # Report лист - таблица сотрудников
         if 'Report' in workbook.sheetnames:
             self._fill_table_by_prefix(workbook['Report'], vacation_infos, rules, 'report_', self._get_report_row_data)
         
-        # Print лист - нормализованная таблица периодов
         if 'Print' in workbook.sheetnames:
             normalized_data = self._normalize_vacation_data(vacation_infos)
             self._fill_table_by_prefix(workbook['Print'], normalized_data, rules, 'print_', self._get_print_row_data)
@@ -515,77 +493,80 @@ class ExcelHandler:
     def _fill_table_by_prefix(self, worksheet, data_list: List, rules: Dict[str, Dict[str, str]], prefix: str, row_data_func):
         """Универсальная функция заполнения таблицы по префиксу"""
         header_rules = rules.get('header', {})
+        
+        # Собираем mapping: имя поля -> столбец
         column_mapping = {}
-        
-        # Получаем структуру из конфига
-        report_structure = self.config.report_structure
-        base_row = report_structure.get("employee_data_start_row", 9)
-        
-        # Определяем mapping столбцов
         for cell_address, field_name in header_rules.items():
             if field_name.startswith(prefix):
-                try:
-                    is_formula, clean_address, sheet_name = self._parse_cell_address(cell_address)
-                    if ':' not in clean_address and ';' not in clean_address:
-                        col_match = re.search(r'([A-Z]+)', clean_address)
-                        row_match = re.search(r'(\d+)', clean_address)
-                        
-                        if col_match:
-                            column_mapping[field_name] = col_match.group(1)
-                        
-                        if field_name == f'{prefix}row_number' and row_match:
-                            base_row = int(row_match.group(1)) + 1
-                except:
-                    continue
+                if cell_address.startswith('=') and '!' in cell_address:
+                    sheet_and_cell = cell_address[1:]
+                    if '!' in sheet_and_cell:
+                        sheet_part, cell_part = sheet_and_cell.split('!', 1)
+                        col_match = re.search(r'([A-Z]+)', cell_part)
+                        row_match = re.search(r'(\d+)', cell_part)
+                        if col_match and row_match:
+                            column_mapping[field_name] = (col_match.group(1), int(row_match.group(1)))
+                else:
+                    col_match = re.search(r'([A-Z]+)', cell_address)
+                    row_match = re.search(r'(\d+)', cell_address)
+                    if col_match and row_match:
+                        column_mapping[field_name] = (col_match.group(1), int(row_match.group(1)))
+        
+        if not column_mapping:
+            return
         
         # Заполняем данные
         for i, data_item in enumerate(data_list):
-            row = base_row + i
             row_data = row_data_func(data_item, i)
             
-            for field_name, value in row_data.items():
-                full_field_name = f'{prefix}{field_name}'
-                if full_field_name in column_mapping:
-                    worksheet[f"{column_mapping[full_field_name]}{row}"] = value
+            for key, value in row_data.items():
+                if key in column_mapping:
+                    col, header_row = column_mapping[key]
+                    data_row = header_row + 1 + i
+                    cell_address = f"{col}{data_row}"
+                    
+                    # Преобразуем значение к правильному типу
+                    converted_value = self._convert_value_type(value)
+                    worksheet[cell_address] = converted_value
 
     def _get_report_row_data(self, vacation_info: VacationInfo, index: int) -> Dict[str, Any]:
-        """Возвращает данные строки для Report листа"""
         emp = vacation_info.employee
         
-        # Определяем текст статуса для отображения
-        if vacation_info.status == VacationStatus.FILLED_CORRECT:
-            status_text = "Ок"
-        elif vacation_info.status == VacationStatus.NOT_FILLED:
-            status_text = "Не заполнено"
-        else:  # FILLED_INCORRECT
-            # Показываем ошибки если есть, иначе общий текст
-            status_text = "\n".join(vacation_info.validation_errors) if vacation_info.validation_errors else "Заполнено с ошибками"
-        
         return {
-            'row_number': index + 1,
-            'employee_name': emp['ФИО работника'],
-            'tab_number': emp['Табельный номер'],
-            'position': emp['Должность'],
-            'department1': emp['Подразделение 1'],
-            'department2': emp['Подразделение 2'],
-            'department3': emp['Подразделение 3'],
-            'department4': emp['Подразделение 4'],
-            'status': status_text,
-            'total_days': vacation_info.total_days,
-            'periods_count': vacation_info.periods_count
+            "report_row_number": index + 1,
+            "report_employee_name": emp.get("ФИО работника", ""),
+            "report_tab_number": emp.get("Табельный номер", ""),
+            "report_position": emp.get("Должность", ""),
+            "report_department1": emp.get("Подразделение 1", ""),
+            "report_department2": emp.get("Подразделение 2", ""),
+            "report_department3": emp.get("Подразделение 3", ""),
+            "report_department4": emp.get("Подразделение 4", ""),
+            "report_status": vacation_info.get_status_text(),
+            "report_total_days": sum(p.days for p in vacation_info.periods) if vacation_info.periods else "",
+            "report_periods_count": len(vacation_info.periods) if vacation_info.periods else "",
         }
 
-    def _get_print_row_data(self, normalized_record: Dict, index: int) -> Dict[str, Any]:
-        """Возвращает данные строки для Print листа"""
-        emp = normalized_record['employee']
+    def _get_print_row_data(self, data, index: int) -> Dict[str, Any]:
+        """Получает данные строки для Print листа из нормализованных данных"""
+        emp = data.get('employee', {})
+        start_date = data.get('start_date')
+        end_date = data.get('end_date')
+        days = data.get('days', 0)
+        
+        start_date_str = start_date.strftime('%d.%m.%Y') if start_date else ""
+        end_date_str = end_date.strftime('%d.%m.%Y') if end_date else ""
+        
         return {
-            'row_number': index + 1,
-            'tab_number': emp['Табельный номер'],
-            'employee_name': emp['ФИО работника'],
-            'position': emp['Должность'],
-            'start_date': normalized_record['start_date'].strftime('%d.%m.%Y') if normalized_record['start_date'] else '',
-            'end_date': normalized_record['end_date'].strftime('%d.%m.%Y') if normalized_record['end_date'] else '',
-            'duration': normalized_record['days'] if normalized_record['days'] > 0 else ''
+            "print_row_number": index + 1,
+            "print_tab_number": emp.get("Табельный номер", ""),
+            "print_employee_name": emp.get("ФИО работника", ""),
+            "print_position": emp.get("Должность", ""),
+            "print_start_date": start_date_str,
+            "print_end_date": end_date_str,
+            "print_duration": str(days) if days > 0 else "",
+            "print_signature": "",
+            "print_acknowledgment_date": "",
+            "print_notes": "",
         }
 
     def _normalize_vacation_data(self, vacation_infos: List[VacationInfo]) -> List[Dict]:
@@ -614,19 +595,17 @@ class ExcelHandler:
         start_row = report_structure.get("employee_data_start_row", 9)
         
         for row in range(start_row, start_row + data_count):
-            for col in range(1, 11):  # A-J
+            for col in range(1, 11):
                 worksheet.cell(row=row, column=col).border = thin_border
 
     def _fill_calendar_matrix(self, worksheet, vacation_infos: List[VacationInfo]):
         """Заполняет календарную матрицу"""
-        # Получаем параметры из конфига
         report_structure = self.config.report_structure
         start_col = report_structure.get("calendar_start_col", 12)
         month_row = report_structure.get("calendar_month_row", 7)
         day_row = report_structure.get("calendar_day_row", 8)
         employee_start_row = report_structure.get("employee_data_start_row", 9)
         
-        # Получаем данные календаря из конфига
         month_names = self.config.month_names
         days_in_months = self.config.days_in_months
         target_year = self.config.target_year
@@ -672,13 +651,12 @@ class ExcelHandler:
     def read_block_report_data(self, report_path: str) -> Optional[Dict]:
         """Читает данные из отчета по блоку"""
         try:
-            workbook = openpyxl.load_workbook(report_path, data_only=True)
+            workbook = openpyxl.load_workbook(report_path, data_only=True, read_only=True)
             if 'Report' not in workbook.sheetnames:
                 return None
             
             worksheet = workbook['Report']
             
-            # Используем структуру из конфига
             report_structure = self.config.report_structure
             header_cells = report_structure.get("report_header_cells", {})
             
@@ -735,13 +713,12 @@ class ExcelHandler:
         worksheet = workbook.active
         
         if worksheet is None:
-            self.logger.error("Не удалось получить активный лист")
             return False
         
         # Заполняем данные
         for i, data in enumerate(block_data):
             row = 6 + i
-            if i > 0:  # Вставляем строки для дополнительных блоков
+            if i > 0:
                 worksheet.insert_rows(row, 1)
             
             worksheet[f"A{row}"] = i + 1
@@ -823,27 +800,3 @@ class ExcelHandler:
         
         clean_name = re.sub(r'[\\/:*?"<>|]', '_', filename).strip()
         return clean_name[:100] if len(clean_name) > 100 else clean_name or "unnamed"
-
-    def test_created_employee_file(self, file_path: str, rules: Dict[str, Dict[str, str]]):
-        """Проверяет значения в созданном файле по адресам из rules['value'] и выводит их в консоль"""
-        import openpyxl
-        print(f"=== TEST: Проверка заполнения файла: {file_path} ===")
-        workbook = openpyxl.load_workbook(file_path, data_only=True)
-        for cell_address, field_name in rules.get('value', {}).items():
-            try:
-                is_formula, clean_address, sheet_name = self._parse_cell_address(cell_address)
-                if sheet_name and sheet_name in workbook.sheetnames:
-                    ws = workbook[sheet_name]
-                else:
-                    ws = workbook.worksheets[0]
-                try:
-                    cell = ws[clean_address]
-                    if isinstance(cell, tuple):
-                        value = cell[0].value if cell and hasattr(cell[0], 'value') else None
-                    else:
-                        value = cell.value if hasattr(cell, 'value') else None
-                except:
-                    value = None
-                print(f"  {field_name} ({cell_address}): {value}")
-            except Exception as e:
-                print(f"  {field_name} ({cell_address}): ERROR: {e}")

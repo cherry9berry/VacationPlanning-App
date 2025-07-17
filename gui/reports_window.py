@@ -770,21 +770,21 @@ class ReportTab:
             self.add_info_to_existing("=" * 50)
             
             for entry in operation_log.entries:
-                if entry.level == "INFO":
+                if entry.get('level') == "INFO":
                     # ИСПРАВЛЕНИЕ: Убираем зеленое выделение для всех ИТОГ сообщений по отделам
-                    if ("Создан отчет:" in entry.message or 
-                        "Данные собраны из отчета для" in entry.message or
-                        "Скрипт скопирован в" in entry.message or
-                        "найдено" in entry.message.lower() and "отчет" in entry.message.lower()):
-                        self.add_info_to_existing(f"ИТОГ: {entry.message}")  # Обычный текст
+                    if ("Создан отчет:" in entry.get('message', '') or 
+                        "Данные собраны из отчета для" in entry.get('message', '') or
+                        "Скрипт скопирован в" in entry.get('message', '') or
+                        "найдено" in entry.get('message', '').lower() and "отчет" in entry.get('message', '').lower()):
+                        self.add_info_to_existing(f"ИТОГ: {entry.get('message', '')}")  # Обычный текст
                     else:
-                        self.add_info_to_existing(f"ИТОГ: {entry.message}", "success")  # Зеленое только для итоговых сводок
+                        self.add_info_to_existing(f"ИТОГ: {entry.get('message', '')}", "success")  # Зеленое только для итоговых сводок
         else:
             self.add_info_to_existing("")
             self.add_info_to_existing("ОШИБКА СОЗДАНИЯ ОТЧЕТОВ!", "error")
             for entry in operation_log.entries:
-                if entry.level == "ERROR":
-                    self.add_info_to_existing(f"ОШИБКА: {entry.message}", "error")
+                if entry.get('level') == "ERROR":
+                    self.add_info_to_existing(f"ОШИБКА: {entry.get('message', '')}", "error")
             
             # Показываем messagebox с ошибкой - привязываем к окну отчетов
             messagebox.showerror("Ошибка создания отчетов", "Создание отчетов завершено с ошибками. См. подробности в окне.", parent=self.frame.winfo_toplevel())

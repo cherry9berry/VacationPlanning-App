@@ -244,7 +244,7 @@ class FileManager:
                     filename = self.excel_handler.generate_output_filename(employee)
                     output_path = Path(dept_path) / filename
                     
-                    # Проверяем существование файла
+                    # Проверяем существование файла 
                     if output_path.exists():
                         skipped_count += 1
                         message = f"Пропущен (уже существует): {employee['ФИО работника']}"

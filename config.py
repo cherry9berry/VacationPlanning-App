@@ -10,117 +10,80 @@ from pathlib import Path
 from typing import Dict, Any
 
 
+# ----------------------
+# Класс конфигурации приложения
+# ----------------------
 class Config:
     """Класс для управления конфигурацией приложения"""
     
+    # ----------------------
+    # Словарь с настройками по умолчанию
+    # ----------------------
     DEFAULT_CONFIG = {
-        "employee_template": "templates/employee_template v4.0.xlsx",
-        "block_report_template": "templates/block_report_template.xlsx", 
+        # Путь к шаблону файла сотрудника
+        "employee_template": "templates/employee_template v4.0 lightweight.xlsx",
+        # Путь к шаблону отчета по блоку
+        "block_report_template": "templates/block_report_template v3.xlsx", 
+        # Путь к шаблону общего отчета
         "general_report_template": "templates/global_report_template.xlsx",
+        # Номер строки с заголовками в Excel-файле сотрудников
         "header_row": 5,
-        "processing_time_per_file": 0.3,
+        # Оценочное время обработки одного файла (секунды)
+        "processing_time_per_file": 0.6,
+        # Пароль для Excel-файлов (если используется)
         "excel_password": "1111",
+        # Формат даты для отображения и парсинга
         "date_format": "%d.%m.%y",
+        # Максимальное количество сотрудников в одном файле
         "max_employees": 10000,
+        # Минимальное количество сотрудников в одном файле
         "min_employees": 1,
+        # Ширина окна приложения по умолчанию
         "window_width": 1000,
+        # Высота окна приложения по умолчанию
         "window_height": 700,
-        
         # Параметры календарного года
+        # Год, для которого строится календарь
         "target_year": 2026,
+        # Признак високосного года
         "is_leap_year": False,
+        # Количество дней в каждом месяце (январь-декабрь)
         "days_in_months": [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31],
+        # Названия месяцев для отображения
         "month_names": [
             "Январь", "Февраль", "Март", "Апрель", "Май", "Июнь",
             "Июль", "Август", "Сентябрь", "Октябрь", "Ноябрь", "Декабрь"
         ],
-        
-        # Структура файла сотрудника для чтения данных
+        # Статусы валидации (для проверки заполнения форм)
+        "validation_statuses": {
+            "not_filled": "Форма не заполнена",
+            "filled_incorrect": "Форма заполнена некорректно", 
+            "filled_correct": "Форма заполнена корректно"
+        },
+        # Структура файла сотрудника
         "employee_file_structure": {
-            # Основные параметры
-            "active_sheet_index": 0,  # Первый лист (индекс 0)
-            "status_cell": "B12",     # Ячейка со статусом формы
-            
-            # Данные сотрудника
-            "employee_data_rows": {"start": 15, "end": 29},  # Строки с данными сотрудников (новый шаблон)
-            "employee_columns": {
-                "tab_number": "B",    # Столбец табельного номера
-                "full_name": "C",     # Столбец ФИО
-                "position": "D"       # Столбец должности
-            },
-            
-            # Подразделения в шапке
+            "active_sheet_index": 0,
             "department_cells": {
                 "department1": "C2",
                 "department2": "C3", 
                 "department3": "C4",
                 "department4": "C5"
             },
-            
-            # Периоды отпусков
+            "employee_columns": {
+                "full_name": "C",
+                "tab_number": "B",
+                "position": "D"
+            },
+            "employee_data_rows": {
+                "start": 15,
+                "end": 29
+            },
             "vacation_columns": {
-                "start_date": "E",    # Столбец даты начала отпуска
-                "end_date": "F",      # Столбец даты окончания отпуска
-                "days": "G"           # Столбец количества дней
+                "start_date": "C",
+                "end_date": "D",
+                "days": "G"
             },
-            
-            # Ячейки валидации (для обратной совместимости, но основной статус из B12)
-            "validation_cells": {
-                "total_days": "J2",   # Общее количество дней
-                "error_h2": "H2",     # Ячейка с ошибками H2
-                "error_i2": "I2"      # Ячейка с ошибками I2
-            }
-        },
-        
-        # Структура отчетов
-        "report_structure": {
-            # Календарная матрица
-            "calendar_start_col": 12,      # Столбец L (начало календаря)
-            "calendar_month_row": 7,       # Строка с названиями месяцев
-            "calendar_day_row": 8,         # Строка с числами дней
-            
-            # Данные сотрудников в отчете
-            "employee_data_start_row": 9,  # Начальная строка данных сотрудников
-            
-            # Ячейки шапки отчета (Report лист)
-            "report_header_cells": {
-                "block_name": "A3",
-                "update_date": "A4", 
-                "total_employees": "A5",
-                "completed": "A6"
-            },
-            
-            # Столбцы таблицы сотрудников (Report лист)
-            "report_employee_columns": {
-                "row_number": "A",      # № п/п
-                "full_name": "B",       # ФИО
-                "tab_number": "C",      # Табельный номер
-                "position": "D",        # Должность
-                "department1": "E",     # Подразделение 1
-                "department2": "F",     # Подразделение 2
-                "department3": "G",     # Подразделение 3
-                "department4": "H",     # Подразделение 4
-                "status": "I",          # Статус планирования
-                "total_days": "J",      # Итого дней
-                "periods_count": "K"    # Количество периодов
-            },
-            
-            # Настройки Print листа
-            "print_structure": {
-                "block_name_cell": "D4",
-                "data_start_row": 9,
-                "pagination": {
-                    "first_page_records": 14,
-                    "other_pages_records": 18
-                }
-            }
-        },
-        
-        # Статусы валидации (новая логика)
-        "validation_statuses": {
-            "not_filled": "Форма не заполнена",
-            "filled_incorrect": "Форма заполнена некорректно", 
-            "filled_correct": "Форма заполнена корректно"
+            "status_cell": "B12"
         }
     }
     
@@ -197,15 +160,15 @@ class Config:
     
     @property
     def employee_template(self) -> str:
-        return self.get("employee_template")
+        return self.get("employee_template", "")
     
     @property 
     def block_report_template(self) -> str:
-        return self.get("block_report_template")
+        return self.get("block_report_template", "")
     
     @property
     def general_report_template(self) -> str:
-        return self.get("general_report_template")
+        return self.get("general_report_template", "")
     
     @property
     def header_row(self) -> int:
@@ -237,24 +200,20 @@ class Config:
         return self.get("is_leap_year", False)
     
     @property
+    def month_names(self) -> list:
+        return self.get("month_names", ["Январь", "Февраль", "Март", "Апрель", "Май", "Июнь", "Июль", "Август", "Сентябрь", "Октябрь", "Ноябрь", "Декабрь"])
+    
+    @property
     def days_in_months(self) -> list:
         return self.get("days_in_months", [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31])
     
     @property
-    def month_names(self) -> list:
-        return self.get("month_names", [
-            "Январь", "Февраль", "Март", "Апрель", "Май", "Июнь",
-            "Июль", "Август", "Сентябрь", "Октябрь", "Ноябрь", "Декабрь"
-        ])
+    def report_structure(self) -> dict:
+        return self.get("report_structure", {})
     
-    # Структура файла сотрудника
     @property
     def employee_file_structure(self) -> dict:
         return self.get("employee_file_structure", {})
-    
-    @property
-    def report_structure(self) -> dict:
-        return self.get("report_structure", {})
     
     @property
     def validation_statuses(self) -> dict:

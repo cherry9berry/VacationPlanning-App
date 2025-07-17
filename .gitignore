@@ -10,6 +10,8 @@ test/
 tests/
 sandbox/
 backLog_aka_toDo.md
+*.md
+*.txt
 # C extensions
 *.so
 *.txt
