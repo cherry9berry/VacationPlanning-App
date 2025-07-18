@@ -7,7 +7,7 @@
 import logging
 import shutil
 from pathlib import Path
-from typing import List, Dict, Callable, Optional
+from typing import List, Dict, Callable, Optional, Any
 from dataclasses import dataclass
 from datetime import datetime
 
@@ -19,8 +19,14 @@ class TransactionOperation:
     """Операция в транзакции"""
     operation_type: str  # 'create_file', 'create_directory', 'delete_file'
     path: str
-    metadata: Optional[Dict] = None
+    metadata: Dict[str, Any]
     backup_path: Optional[str] = None
+    
+    def __init__(self, operation_type: str, path: str, metadata: Optional[Dict[str, Any]] = None, backup_path: Optional[str] = None):
+        self.operation_type = operation_type
+        self.path = path
+        self.metadata = metadata if metadata is not None else {}
+        self.backup_path = backup_path
 
 
 class TransactionManager:
@@ -32,7 +38,7 @@ class TransactionManager:
         self._backup_dir: Optional[Path] = None
         self._transaction_active = False
     
-    def begin_transaction(self, backup_dir: str = None) -> bool:
+    def begin_transaction(self, backup_dir: Optional[str] = None) -> bool:
         """
         Начинает новую транзакцию
         
@@ -144,7 +150,7 @@ class TransactionManager:
             self._transaction_active = False
             return False
     
-    def add_file_creation(self, file_path: str, employee: Dict = None) -> bool:
+    def add_file_creation(self, file_path: str, employee: Optional[Dict[str, Any]] = None) -> bool:
         """
         Добавляет операцию создания файла в транзакцию
         
@@ -162,7 +168,7 @@ class TransactionManager:
             path = Path(file_path)
             
             # Создаем резервную копию если файл существует
-            backup_path = None
+            backup_path: Optional[str] = None
             if path.exists() and self._backup_dir:
                 backup_name = f"backup_{datetime.now().strftime('%Y%m%d_%H%M%S_%f')}_{path.name}"
                 backup_path = str(self._backup_dir / backup_name)
@@ -172,7 +178,7 @@ class TransactionManager:
             operation = TransactionOperation(
                 operation_type='create_file',
                 path=str(path),
-                metadata={'employee': employee} if employee else None,
+                metadata={'employee': employee} if employee is not None else {},
                 backup_path=backup_path
             )
             
@@ -183,7 +189,7 @@ class TransactionManager:
             self.logger.error(f"Ошибка добавления операции создания файла: {e}")
             return False
     
-    def add_directory_creation(self, dir_path: str, department_name: str = None) -> bool:
+    def add_directory_creation(self, dir_path: str, department_name: Optional[str] = None) -> bool:
         """
         Добавляет операцию создания директории в транзакцию
         
@@ -201,7 +207,8 @@ class TransactionManager:
             operation = TransactionOperation(
                 operation_type='create_directory',
                 path=str(Path(dir_path)),
-                metadata={'department_name': department_name} if department_name else None
+                metadata={'department_name': department_name} if department_name is not None else {},
+                backup_path=None
             )
             
             self._current_transaction.append(operation)

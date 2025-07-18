@@ -195,6 +195,10 @@ class Validator:
                     value = ''
                 employee_data[field] = str(value).strip()
             
+            # ИСПРАВЛЕНО: В правильном входном файле нет дат отпусков в строках 15-29
+            # Даты отпусков будут заполняться вручную в формах сотрудников
+            employee_data['vacation_dates'] = []
+            
             # Добавляем только если есть обязательные поля
             if (employee_data.get('ФИО работника') and 
                 employee_data.get('Табельный номер') and 

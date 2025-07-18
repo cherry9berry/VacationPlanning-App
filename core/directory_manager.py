@@ -140,8 +140,15 @@ class DirectoryManager:
         try:
             for file_path in dept_path.iterdir():
                 if file_path.is_file() and file_path.suffix.lower() == '.xlsx':
-                    # Исключаем отчеты (файлы начинающиеся с '!')
-                    if not file_path.name.startswith('!'):
+                    # Исключаем временные файлы Excel и отчеты
+                    filename = file_path.name
+                    if (not filename.startswith('~$') and  # Временные файлы Excel
+                        not filename.startswith('!') and   # Системные файлы
+                        not filename.startswith('Отчет') and  # Отчеты по блоку
+                        not filename.startswith('отчет') and  # Отчеты по блоку (с маленькой буквы)
+                        not 'отчет' in filename.lower() and  # Любые отчеты
+                        not filename.startswith('ОБЩИЙ_ОТЧЕТ') and  # Общие отчеты
+                        not filename.startswith('общий_отчет')):  # Общие отчеты (с маленькой буквы)
                         files.append(str(file_path))
         except Exception as e:
             self.logger.error(f"Ошибка сканирования папки {dept_path}: {e}")

@@ -152,72 +152,96 @@ class Config:
         
         results = {}
         for name, path in templates.items():
-            file_path = Path(path)
-            results[name] = file_path.exists()
+            if path is not None:
+                file_path = Path(str(path))
+                results[name] = file_path.exists()
+            else:
+                results[name] = False
             
         return results
     
     @property
     def employee_template(self) -> str:
-        return self.get("employee_template", "")
+        value = self.get("employee_template")
+        return str(value) if value is not None else ""
     
     @property 
     def block_report_template(self) -> str:
-        return self.get("block_report_template", "")
+        value = self.get("block_report_template")
+        return str(value) if value is not None else ""
     
     @property
     def general_report_template(self) -> str:
-        return self.get("general_report_template", "")
+        value = self.get("general_report_template")
+        return str(value) if value is not None else ""
     
     @property
     def header_row(self) -> int:
-        return self.get("header_row", 5)
+        value = self.get("header_row")
+        return int(value) if value is not None else 5
     
     @property
     def excel_password(self) -> str:
-        return self.get("excel_password", "1111")
+        value = self.get("excel_password")
+        return str(value) if value is not None else "1111"
     
     @property
     def date_format(self) -> str:
-        return self.get("date_format", "%d.%m.%y")
+        value = self.get("date_format")
+        return str(value) if value is not None else "%d.%m.%y"
     
     @property
     def max_employees(self) -> int:
-        return self.get("max_employees", 10000)
+        value = self.get("max_employees")
+        return int(value) if value is not None else 10000
     
     @property
     def min_employees(self) -> int:
-        return self.get("min_employees", 1)
+        value = self.get("min_employees")
+        return int(value) if value is not None else 1
     
     # Календарные параметры
     @property
     def target_year(self) -> int:
-        return self.get("target_year", 2026)
+        value = self.get("target_year")
+        return int(value) if value is not None else 2026
     
     @property
     def is_leap_year(self) -> bool:
-        return self.get("is_leap_year", False)
+        value = self.get("is_leap_year")
+        return bool(value) if value is not None else False
     
     @property
     def month_names(self) -> list:
-        return self.get("month_names", ["Январь", "Февраль", "Март", "Апрель", "Май", "Июнь", "Июль", "Август", "Сентябрь", "Октябрь", "Ноябрь", "Декабрь"])
+        value = self.get("month_names")
+        if value is not None:
+            return list(value)
+        return ["Январь", "Февраль", "Март", "Апрель", "Май", "Июнь", "Июль", "Август", "Сентябрь", "Октябрь", "Ноябрь", "Декабрь"]
     
     @property
     def days_in_months(self) -> list:
-        return self.get("days_in_months", [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31])
+        value = self.get("days_in_months")
+        if value is not None:
+            return list(value)
+        return [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
     
     @property
     def report_structure(self) -> dict:
-        return self.get("report_structure", {})
+        value = self.get("report_structure")
+        return dict(value) if value is not None else {}
     
     @property
     def employee_file_structure(self) -> dict:
-        return self.get("employee_file_structure", {})
+        value = self.get("employee_file_structure")
+        return dict(value) if value is not None else {}
     
     @property
     def validation_statuses(self) -> dict:
-        return self.get("validation_statuses", {
+        value = self.get("validation_statuses")
+        if value is not None:
+            return dict(value)
+        return {
             "not_filled": "Форма не заполнена",
             "filled_incorrect": "Форма заполнена некорректно", 
             "filled_correct": "Форма заполнена корректно"
-        })
+        }

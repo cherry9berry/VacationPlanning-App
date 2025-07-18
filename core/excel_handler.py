@@ -80,6 +80,10 @@ class ExcelHandler:
                     value = ''
                 data_dict[field_name] = value
             
+            # Добавляем даты отпусков из входного файла
+            if 'vacation_dates' in employee:
+                data_dict['vacation_dates'] = employee['vacation_dates']
+            
             # Загружаем файл для редактирования
             workbook = openpyxl.load_workbook(
                 output_path,
@@ -116,6 +120,10 @@ class ExcelHandler:
                         
                     except Exception as e:
                         self.logger.error(f"Ошибка при заполнении {cell_address}: {e}")
+        
+        # Заполняем даты отпусков из входного файла
+        if 'vacation_dates' in data_dict and data_dict['vacation_dates']:
+            self._fill_vacation_dates(workbook, data_dict['vacation_dates'])
 
     def _parse_cell_address(self, address: str) -> tuple:
         """Парсит адрес ячейки, возвращает (is_formula, clean_address, sheet_name)"""
@@ -146,7 +154,7 @@ class ExcelHandler:
         self._cached_cell_addresses[address] = result
         return result
 
-    def _convert_value_type(self, value):
+    def _convert_value_type(self, value: Any) -> Any:
         """Преобразует значение к правильному типу данных для Excel"""
         if value is None or value == '':
             return ''
@@ -173,7 +181,7 @@ class ExcelHandler:
         
         return str_value
     
-    def _fill_cell_fast(self, worksheet, address: str, value):
+    def _fill_cell_fast(self, worksheet, address: str, value: Any) -> None:
         """Быстрое заполнение ячейки без сложных проверок"""
         try:
             cell = worksheet[address]
@@ -181,7 +189,7 @@ class ExcelHandler:
         except Exception as e:
             self.logger.error(f"Ошибка при быстром заполнении {address}: {e}")
     
-    def _fill_cell_or_range(self, workbook, sheet_name: str, address: str, value):
+    def _fill_cell_or_range(self, workbook, sheet_name: str, address: str, value: Any) -> None:
         """Заполняет ячейку или диапазон значением с правильным типом данных"""
         converted_value = self._convert_value_type(value)
         
@@ -273,13 +281,41 @@ class ExcelHandler:
             return True
         except (ValueError, TypeError):
             return False
+            
+    def _fill_vacation_dates(self, workbook, vacation_dates: List[Dict[str, Any]]):
+        """Заполняет даты отпусков в файле сотрудника"""
+        # ИСПРАВЛЕНО: В правильном входном файле нет дат отпусков
+        # Даты отпусков будут заполняться вручную в формах сотрудников
+        if not vacation_dates:
+            return
+            
+        try:
+            worksheet = workbook.worksheets[0]  # Основной лист
+            
+            # Заполняем даты в строках 15-29 только если они есть
+            for i, vacation in enumerate(vacation_dates[:15]):  # Максимум 15 периодов
+                row = 15 + i
+                
+                start_date = vacation.get('start_date')
+                end_date = vacation.get('end_date')
+                days = vacation.get('days')
+                
+                if start_date:
+                    worksheet[f"C{row}"] = start_date
+                if end_date:
+                    worksheet[f"D{row}"] = end_date
+                if days:
+                    worksheet[f"E{row}"] = days
+                    
+        except Exception as e:
+            self.logger.error(f"Ошибка при заполнении дат отпусков: {e}")
         
-    def clear_cache(self):
+    def clear_cache(self) -> None:
         """Очищает кэш для освобождения памяти"""
         for workbook in self._cached_workbooks.values():
             try:
                 workbook.close()
-            except:
+            except Exception:
                 pass
         
         self._cached_workbooks.clear()
@@ -336,7 +372,7 @@ class ExcelHandler:
                         if cell.data_type == 'f':
                             try:
                                 _ = cell.value
-                            except:
+                            except Exception:
                                 pass
             
             # Получаем rules из шаблона сотрудника для чтения данных
@@ -748,7 +784,13 @@ class ExcelHandler:
                         sheet_name = 'Report'
                     
                     if sheet_name in workbook.sheetnames:
-                        value = workbook[sheet_name][clean_address].value
+                        cell = workbook[sheet_name][clean_address]
+                        if isinstance(cell, tuple):
+                            value = cell[0].value if cell else None
+                        elif hasattr(cell, 'value'):
+                            value = cell.value
+                        else:
+                            value = cell
                         data[field_name] = value
                 except Exception as e:
                     self.logger.warning(f"Ошибка чтения {cell_address}: {e}")
@@ -892,7 +934,7 @@ class ExcelHandler:
         
         # Заполняем данные используя DataMapper
         for i, data in enumerate(block_data):
-            row = 8 + i  # Начинаем с 8-й строки
+            row = 9 + i  # Начинаем с 9-й строки (после заголовков)
             
             # Вставляем строку если нужно
             if i > 0:
@@ -943,7 +985,7 @@ class ExcelHandler:
         
         # Заполняем данные
         for i, data in enumerate(block_data):
-            row = 8 + i  # Начинаем с 8-й строки
+            row = 9 + i  # Начинаем с 9-й строки (после заголовков)
             
             # Вставляем строку если нужно
             if i > 0:
@@ -985,7 +1027,7 @@ class ExcelHandler:
         thin_border = Border(left=Side(style='thin'), right=Side(style='thin'), 
                            top=Side(style='thin'), bottom=Side(style='thin'))
         
-        start_row = 8
+        start_row = 9
         end_row = start_row + data_count - 1
         
         # Определяем количество столбцов по правилам

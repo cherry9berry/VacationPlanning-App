@@ -39,6 +39,9 @@ class ReportTab:
         # НОВЫЕ ПЕРЕМЕННЫЕ для отслеживания повторных выборов
         self.path_reselected = False
         
+        # Инициализация таймингов для блоков
+        self._block_timings = {}
+        
         # Подписка на события
         self._setup_event_listeners()
         
@@ -165,14 +168,14 @@ class ReportTab:
         label_text = "Папки подразделений:" if self.tab_type == "departments" else "Целевая папка:"
         
         files_frame = ttk.LabelFrame(self.frame, text=title, padding="10")
-        files_frame.grid(row=0, column=0, columnspan=3, pady=(0, 15), sticky=(tk.W, tk.E))
+        files_frame.grid(row=0, column=0, columnspan=3, pady=(0, 15), sticky="ew")
         files_frame.columnconfigure(1, weight=1)
         
         ttk.Label(files_frame, text=label_text).grid(row=0, column=0, sticky=tk.W, pady=5)
         
         self.path_var = tk.StringVar()
         self.path_entry = ttk.Entry(files_frame, textvariable=self.path_var, state="readonly")
-        self.path_entry.grid(row=0, column=1, sticky=(tk.W, tk.E), padx=(10, 5), pady=5)
+        self.path_entry.grid(row=0, column=1, sticky="ew", padx=(10, 5), pady=5)
         
         self.select_btn = ttk.Button(files_frame, text="Выбрать", command=self.select_path)
         self.select_btn.grid(row=0, column=2, pady=5)
@@ -181,7 +184,7 @@ class ReportTab:
         """Настройка области информации/прогресса"""
         # Информация (по умолчанию)
         self.info_frame = ttk.LabelFrame(self.frame, text="Информация", padding="10")
-        self.info_frame.grid(row=1, column=0, columnspan=3, pady=(0, 15), sticky=(tk.W, tk.E, tk.N, tk.S))
+        self.info_frame.grid(row=1, column=0, columnspan=3, pady=(0, 15), sticky="nsew")
         self.info_frame.columnconfigure(0, weight=1)
         self.info_frame.rowconfigure(0, weight=1)
         
@@ -194,8 +197,8 @@ class ReportTab:
         info_scrollbar = ttk.Scrollbar(self.info_frame, orient=tk.VERTICAL, command=self.info_text.yview)
         self.info_text.configure(yscrollcommand=info_scrollbar.set)
         
-        self.info_text.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
-        info_scrollbar.grid(row=0, column=1, sticky=(tk.N, tk.S))
+        self.info_text.grid(row=0, column=0, sticky="nsew")
+        info_scrollbar.grid(row=0, column=1, sticky="ns")
         
         # Прогресс (скрыт)
         self.progress_frame = ttk.LabelFrame(self.frame, text="Прогресс обработки", padding="10")
@@ -212,7 +215,7 @@ class ReportTab:
         label_text = "Подразделения:" if self.tab_type == "departments" else "Отделы:"
         ttk.Label(self.progress_frame, text=label_text, font=("TkDefaultFont", 9, "bold")).grid(row=2, column=0, sticky=tk.W, pady=(10, 2))
         self.dept_progress_bar = ttk.Progressbar(self.progress_frame, mode='determinate', length=400)
-        self.dept_progress_bar.grid(row=3, column=0, sticky=(tk.W, tk.E), pady=2)
+        self.dept_progress_bar.grid(row=3, column=0, sticky="ew", pady=2)
         self.dept_detail_label = ttk.Label(self.progress_frame, text="", font=("TkDefaultFont", 8))
         self.dept_detail_label.grid(row=4, column=0, sticky=tk.W, pady=2)
         
@@ -220,7 +223,7 @@ class ReportTab:
         files_label_text = "Файлы в текущем отделе:" if self.tab_type == "departments" else "Обработка отчетов:"
         ttk.Label(self.progress_frame, text=files_label_text, font=("TkDefaultFont", 9)).grid(row=5, column=0, sticky=tk.W, pady=(10, 2))
         self.files_progress_bar = ttk.Progressbar(self.progress_frame, mode='determinate', length=400)
-        self.files_progress_bar.grid(row=6, column=0, sticky=(tk.W, tk.E), pady=2)
+        self.files_progress_bar.grid(row=6, column=0, sticky="ew", pady=2)
         self.files_detail_label = ttk.Label(self.progress_frame, text="", font=("TkDefaultFont", 8))
         self.files_detail_label.grid(row=7, column=0, sticky=tk.W, pady=2)
         
@@ -732,20 +735,21 @@ class ReportTab:
                 if hasattr(self, 'selected_departments') and self.selected_departments:
                     current_block_index = progress.processed_blocks
                     
-                    if current_block_index < len(self.selected_departments):
+                    # ИСПРАВЛЕНИЕ: Инициализируем переменные только один раз для всего процесса
+                    if not hasattr(self, '_block_timings'):
+                        self._block_timings = {}
+                    
+                    # ДОПОЛНИТЕЛЬНАЯ ЗАЩИТА: Если current_block_index выходит за пределы, создаем недостающие записи
+                    import random
+                    if current_block_index >= len(self._block_timings):
+                        for i in range(len(self._block_timings), current_block_index + 1):
+                            self._block_timings[i] = {
+                                'duration': random.uniform(1.5, 3.0),
+                                'start_time': None
+                            }
+                    
+                    if current_block_index < len(self.selected_departments) and current_block_index in self._block_timings:
                         dept_name = self.selected_departments[current_block_index]['name']
-                        
-                        # ИСПРАВЛЕНИЕ: Инициализируем переменные только один раз для всего процесса
-                        if not hasattr(self, '_block_timings'):
-                            self._block_timings = {}
-                            import random
-                            
-                            # Предварительно генерируем время для каждого блока
-                            for i in range(len(self.selected_departments)):
-                                self._block_timings[i] = {
-                                    'duration': random.uniform(1.5, 3.0),
-                                    'start_time': None
-                                }
                         
                         # Устанавливаем время начала для текущего блока если еще не установлено
                         if self._block_timings[current_block_index]['start_time'] is None:
@@ -779,12 +783,12 @@ class ReportTab:
     def show_progress_view(self):
         """Показать прогресс"""
         self.info_frame.grid_remove()
-        self.progress_frame.grid(row=1, column=0, columnspan=3, pady=(0, 15), sticky=(tk.W, tk.E, tk.N, tk.S))
+        self.progress_frame.grid(row=1, column=0, columnspan=3, pady=(0, 15), sticky="nsew")
     
     def show_info_view(self):
         """Показать информацию"""
         self.progress_frame.grid_remove()
-        self.info_frame.grid(row=1, column=0, columnspan=3, pady=(0, 15), sticky=(tk.W, tk.E, tk.N, tk.S))
+        self.info_frame.grid(row=1, column=0, columnspan=3, pady=(0, 15), sticky="nsew")
 
     def on_processing_complete(self, operation_log):
         """Завершение обработки"""
@@ -873,29 +877,7 @@ class ReportTab:
         
         self.info_text.see(tk.END)
 
-    def add_info_to_existing(self, message: str, level: str = "info"):
-        """Добавляет информацию без временной метки"""
-        if level in ["success", "error", "warning"]:
-            colors = {"warning": "#FF8C00", "error": "red", "success": "green"}
-            color = colors[level]
-            font_style = ("TkDefaultFont", 9, "bold")
-        else:
-            color = "black"
-            font_style = ("TkDefaultFont", 9)
-        
-        if message.strip():
-            self.info_text.insert(tk.END, f"{message}\n")
-        else:
-            self.info_text.insert(tk.END, "\n")
-        
-        if level in ["success", "error", "warning"]:
-            start_line = self.info_text.index(tk.END + "-2l linestart")
-            end_line = self.info_text.index(tk.END + "-1l lineend")
-            tag_name = f"color_{level}_no_time"
-            self.info_text.tag_add(tag_name, start_line, end_line)
-            self.info_text.tag_config(tag_name, foreground=color, font=font_style)
-        
-        self.info_text.see(tk.END)
+
 
 
 class ReportsWindow:
@@ -925,7 +907,7 @@ class ReportsWindow:
         self.window.protocol("WM_DELETE_WINDOW", self.on_closing)
         
         main_frame = ttk.Frame(self.window, padding="15")
-        main_frame.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
+        main_frame.grid(row=0, column=0, sticky="nsew")
         
         self.window.columnconfigure(0, weight=1)
         self.window.rowconfigure(0, weight=1)
@@ -934,7 +916,7 @@ class ReportsWindow:
         
         # Notebook с вкладками
         self.notebook = ttk.Notebook(main_frame)
-        self.notebook.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
+        self.notebook.grid(row=0, column=0, sticky="nsew")
         
         # Создаем вкладки
         dept_frame = ttk.Frame(self.notebook, padding="15")
@@ -965,6 +947,7 @@ class ReportsWindow:
             if not result:
                 return
         
-        self.window.destroy()
+        if self.window:
+            self.window.destroy()
         if self.main_window:
             self.main_window.on_window_closed("reports")

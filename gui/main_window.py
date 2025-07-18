@@ -49,7 +49,7 @@ class MainWindow:
         
         # Основной фрейм
         main_frame = ttk.Frame(self.root, padding="16")
-        main_frame.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
+        main_frame.grid(row=0, column=0, sticky="nsew")
         
         # Настройка сетки
         self.root.columnconfigure(0, weight=1)
@@ -59,7 +59,7 @@ class MainWindow:
         
         # Информация о шаблонах
         self.templates_frame = ttk.LabelFrame(main_frame, text="Статус шаблонов", padding="10")
-        self.templates_frame.grid(row=0, column=0, columnspan=2, pady=(0, 15), sticky=(tk.W, tk.E))
+        self.templates_frame.grid(row=0, column=0, columnspan=2, pady=(0, 15), sticky="ew")
         self.templates_frame.columnconfigure(1, weight=1)
         
         self.template_status = {}
@@ -76,17 +76,17 @@ class MainWindow:
             
             # Путь к файлу
             path_label = ttk.Label(self.templates_frame, text=template_path, foreground="blue")
-            path_label.grid(row=i, column=1, sticky=(tk.W, tk.E), padx=(10, 0), pady=0)
+            path_label.grid(row=i, column=1, sticky="ew", padx=(10, 0), pady=0)
             
             # Статус
             status_label = ttk.Label(self.templates_frame, text="", foreground="red")
-            status_label.grid(row=i, column=2, sticky=tk.E, padx=(10, 0), pady=0)
+            status_label.grid(row=i, column=2, sticky="e", padx=(10, 0), pady=0)
 
             self.template_status[template_path] = status_label
         
         # Кнопки основных функций
         buttons_frame = ttk.Frame(main_frame)
-        buttons_frame.grid(row=1, column=0, columnspan=2, pady=(0, 15), sticky=(tk.W, tk.E))
+        buttons_frame.grid(row=1, column=0, columnspan=2, pady=(0, 15), sticky="ew")
         buttons_frame.columnconfigure(0, weight=1)
         buttons_frame.columnconfigure(1, weight=1)
         
@@ -102,7 +102,7 @@ class MainWindow:
             width=25,
             style="BigButton.TButton"
         )
-        self.create_files_btn.grid(row=0, column=0, padx=(0, 10), pady=0, sticky=(tk.W, tk.E))
+        self.create_files_btn.grid(row=0, column=0, padx=(0, 10), pady=0, sticky="ew")
         
         # Кнопка работы с отчетами
         self.reports_btn = ttk.Button(
@@ -112,11 +112,11 @@ class MainWindow:
             width=25,
             style="BigButton.TButton"
         )
-        self.reports_btn.grid(row=0, column=1, padx=(10, 0), pady=0, sticky=(tk.W, tk.E))
+        self.reports_btn.grid(row=0, column=1, padx=(10, 0), pady=0, sticky="ew")
         
         # Инструкции и статус
         instructions_frame = ttk.LabelFrame(main_frame, text="Инструкции", padding="10")
-        instructions_frame.grid(row=2, column=0, columnspan=2, pady=(0, 0), sticky=(tk.W, tk.E, tk.N, tk.S))
+        instructions_frame.grid(row=2, column=0, columnspan=2, pady=(0, 0), sticky="nsew")
         instructions_frame.columnconfigure(0, weight=1)
         instructions_frame.rowconfigure(0, weight=1)
         
@@ -149,7 +149,7 @@ class MainWindow:
                 context_menu.add_command(label="Выделить всё", command=lambda: self.instructions_text.tag_add("sel", "1.0", "end"))
                 context_menu.add_command(label="Копировать", command=lambda: self.copy_selected_text())
                 context_menu.tk_popup(event.x_root, event.y_root)
-            except:
+            except Exception:
                 pass
         
         self.instructions_text.bind('<Button-3>', show_context_menu)  # Правая кнопка мыши
@@ -158,8 +158,8 @@ class MainWindow:
         scrollbar = ttk.Scrollbar(instructions_frame, orient=tk.VERTICAL, command=self.instructions_text.yview)
         self.instructions_text.configure(yscrollcommand=scrollbar.set)
         
-        self.instructions_text.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
-        scrollbar.grid(row=0, column=1, sticky=(tk.N, tk.S))
+        self.instructions_text.grid(row=0, column=0, sticky="nsew")
+        scrollbar.grid(row=0, column=1, sticky="ns")
         
         # Вставляем инструкции
         self.insert_instructions()

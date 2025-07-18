@@ -65,6 +65,14 @@ class CreateFilesWindow:
         
         self.setup_ui()
 
+        # Инициализация дополнительных переменных (но НЕ перезаписываем create_btn!)
+        self.skipped_count_label = None
+        self.error_count_label = None
+        self.status_label = None
+        self.create_button = None
+        self.back_button = None
+        self.created_count_label = None
+
     def _setup_event_listeners(self):
         """Настройка подписки на события"""
         event_bus.subscribe(EventType.FILE_CREATED, self._on_file_created)
@@ -209,8 +217,8 @@ class CreateFilesWindow:
         info_scrollbar = ttk.Scrollbar(self.info_frame, orient=tk.VERTICAL, command=self.info_text.yview)
         self.info_text.configure(yscrollcommand=info_scrollbar.set)
         
-        self.info_text.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
-        info_scrollbar.grid(row=0, column=1, sticky=(tk.N, tk.S))
+        self.info_text.grid(row=0, column=0, sticky="nsew")
+        info_scrollbar.grid(row=0, column=1, sticky="ns")
         
         # Инициализация
         self.add_info("Выберите файл с сотрудниками для начала работы")
@@ -235,7 +243,7 @@ class CreateFilesWindow:
             mode='determinate',
             length=400
         )
-        self.departments_progress_bar.grid(row=3, column=0, sticky=(tk.W, tk.E), pady=2)
+        self.departments_progress_bar.grid(row=3, column=0, sticky="ew", pady=2)
         
         self.departments_detail_label = ttk.Label(self.progress_frame, text="", font=("TkDefaultFont", 8))
         self.departments_detail_label.grid(row=4, column=0, sticky=tk.W, pady=2)
@@ -249,7 +257,7 @@ class CreateFilesWindow:
             mode='determinate',
             length=400
         )
-        self.employees_progress_bar.grid(row=6, column=0, sticky=(tk.W, tk.E), pady=2)
+        self.employees_progress_bar.grid(row=6, column=0, sticky="ew", pady=2)
         
         self.employees_detail_label = ttk.Label(self.progress_frame, text="", font=("TkDefaultFont", 8))
         self.employees_detail_label.grid(row=7, column=0, sticky=tk.W, pady=2)
@@ -303,14 +311,16 @@ class CreateFilesWindow:
             self.output_dir_btn.config(state=tk.NORMAL)
             
             # ВАЖНО: сбрасываем кнопку создания в обычное состояние
-            self.create_btn.config(state=tk.DISABLED, text="Создать файлы", command=self.create_files)
+            if self.create_btn is not None:
+                self.create_btn.config(state=tk.DISABLED, text="Создать файлы", command=self.create_files)
             
             # Автоматически запускаем валидацию
             self.validate_file()
         
         # Возвращаем фокус на окно создания файлов
-        self.window.lift()
-        self.window.focus_force()
+        if self.window:
+            self.window.lift()
+            self.window.focus_force()
 
     def _reset_state(self):
         """Полный сброс состояния окна"""
@@ -335,7 +345,8 @@ class CreateFilesWindow:
             self.add_info(f"Выбрана целевая папка: {dir_path}")
             
             # ВАЖНО: сбрасываем кнопку создания в обычное состояние
-            self.create_btn.config(state=tk.DISABLED, text="Создать файлы", command=self.create_files)
+            if self.create_btn is not None:
+                self.create_btn.config(state=tk.DISABLED, text="Создать файлы", command=self.create_files)
             
             # Проверяем существующие файлы
             self.add_info("")
@@ -346,8 +357,9 @@ class CreateFilesWindow:
             self.check_create_button_state()
         
         # Возвращаем фокус на окно создания файлов
-        self.window.lift()
-        self.window.focus_force()
+        if self.window:
+            self.window.lift()
+            self.window.focus_force()
 
     def check_existing_files(self, dir_path):
         """Проверяет существующие файлы в папке и выводит подробную статистику"""
@@ -446,8 +458,10 @@ class CreateFilesWindow:
                     
                     # Рассчитываем ожидаемое время
                     if self.validation_result:
-                        estimated_time = max(0.1, self.new_employees_count * self.config.get("processing_time_per_file", 0.3))
-                        self.add_info(f"  • Ожидаемое время: {estimated_time:.1f} сек")
+                        processing_time = self.config.get("processing_time_per_file", 0.3)
+                        if processing_time is not None:
+                            estimated_time = max(0.1, self.new_employees_count * processing_time)
+                            self.add_info(f"  • Ожидаемое время: {estimated_time:.1f} сек")
                     
                     # Следующие шаги
                     self.add_info("")
@@ -474,8 +488,10 @@ class CreateFilesWindow:
                 self.add_info(f"  • Всего сотрудников: {len(self._employees)}")
                 
                 # Рассчитываем ожидаемое время для всех файлов
-                estimated_time = max(0.1, self.new_employees_count * self.config.get("processing_time_per_file", 0.3))
-                self.add_info(f"  • Ожидаемое время: {estimated_time:.1f} сек")
+                processing_time = self.config.get("processing_time_per_file", 0.3)
+                if processing_time is not None:
+                    estimated_time = max(0.1, self.new_employees_count * processing_time)
+                    self.add_info(f"  • Ожидаемое время: {estimated_time:.1f} сек")
                 
                 # Следующие шаги
                 self.add_info("")
@@ -507,10 +523,12 @@ class CreateFilesWindow:
                 self.validation_result = validation_result
                 
                 # Обновляем UI в главном потоке
-                self.window.after(0, self.on_validation_complete, employees)
+                if self.window:
+                    self.window.after(0, self.on_validation_complete, employees)
                 
             except Exception as e:
-                self.window.after(0, self.on_validation_error, str(e))
+                if self.window:
+                    self.window.after(0, self.on_validation_error, str(e))
         
         threading.Thread(target=validate_thread, daemon=True).start()
         
@@ -519,16 +537,17 @@ class CreateFilesWindow:
             # Сохраняем сотрудников (уже отфильтрованных в validator)
             self._employees = employees
             
-            if self.validation_result.is_valid:
+            if self.validation_result and self.validation_result.is_valid:
                 self.add_info("")
                 self.add_info("ВАЛИДАЦИЯ УСПЕШНО ЗАВЕРШЕНА", "success")
                 
                 # ИСПРАВЛЕНО: Теперь список employees уже отфильтрован и не содержит дублирующихся табельных номеров
                 # Поэтому дополнительная проверка не нужна, но покажем предупреждения из валидации
-                if self.validation_result.warnings:
+                warnings = getattr(self.validation_result, 'warnings', None) if self.validation_result else None
+                if warnings:
                     self.add_info("")
                     self.add_info("НАЙДЕНЫ ПРОБЛЕМЫ:", "warning")
-                    for warning in self.validation_result.warnings:
+                    for warning in warnings:
                         self.add_info(f"  • {warning}")
                 
                 self.add_info("")
@@ -536,8 +555,8 @@ class CreateFilesWindow:
                 
                 # ИСПРАВЛЕНО: Используем правильную статистику
                 total_after_filter = len(employees)  # Количество после фильтрации
-                unique_tab_numbers = len(set(emp['Табельный номер'] for emp in employees))
-                warnings_count = len(self.validation_result.warnings)
+                unique_tab_numbers = len(set(emp.get('Табельный номер', '') for emp in employees if emp.get('Табельный номер')))
+                warnings_count = len(self.validation_result.warnings) if self.validation_result and self.validation_result.warnings is not None else 0
                 
                 self.add_info(f"  • Всего сотрудников после фильтрации: {total_after_filter}")
                 self.add_info(f"  • Уникальных табельных номеров: {unique_tab_numbers}")
@@ -562,13 +581,16 @@ class CreateFilesWindow:
                 
                 self.add_info("")
                 self.add_info("ОШИБКИ ВАЛИДАЦИИ:", "error")
-                for error in self.validation_result.errors:
-                    self.add_info(f"  • {error}", "error")
+                errors = getattr(self.validation_result, 'errors', None) if self.validation_result else None
+                if errors:
+                    for error in errors:
+                        self.add_info(f"  • {error}", "error")
                 
-                if self.validation_result.warnings:
+                warnings = getattr(self.validation_result, 'warnings', None) if self.validation_result else None
+                if warnings:
                     self.add_info("")
                     self.add_info("ПРЕДУПРЕЖДЕНИЯ:", "warning")
-                    for warning in self.validation_result.warnings:
+                    for warning in warnings:
                         self.add_info(f"  • {warning}", "warning")
 
     def check_employee_uniqueness(self, employees):
@@ -580,8 +602,9 @@ class CreateFilesWindow:
     def format_validation_stats(self, validation_result, employees):
         """ИСПРАВЛЕНО: Форматирует статистику валидации с учетом фильтрации"""
         total_after_filter = len(employees)
-        unique_tab_numbers = len(set(emp['Табельный номер'] for emp in employees))
-        warnings_count = len(validation_result.warnings)
+        unique_tab_numbers = len(set(emp.get('Табельный номер', '') for emp in employees if emp.get('Табельный номер')))
+        warnings = getattr(validation_result, 'warnings', None) if validation_result else None
+        warnings_count = len(warnings) if warnings else 0
         
         stats = f"• Всего сотрудников после фильтрации: {total_after_filter}\n"
         stats += f"• Уникальных табельных номеров: {unique_tab_numbers}\n"
@@ -625,17 +648,20 @@ class CreateFilesWindow:
             hasattr(self, 'new_employees_count') and
             self.new_employees_count > 0 and
             not self.is_processing and
-            self.create_btn['text'] != "Закрыть"):
+            self.create_btn is not None and self.create_btn['text'] != "Закрыть"):
             
-            self.create_btn.config(state=tk.NORMAL, text="Создать файлы", command=self.create_files)
-        elif self.create_btn['text'] == "Закрыть":
-            self.create_btn.config(
-                text="Создать файлы",
-                state=tk.DISABLED,  # или tk.NORMAL, если все условия выполнены
-                command=self.create_files
-            )
+            if self.create_btn is not None:
+                self.create_btn.config(state=tk.NORMAL, text="Создать файлы", command=self.create_files)
+        elif self.create_btn is not None and self.create_btn['text'] == "Закрыть":
+            if self.create_btn is not None:
+                self.create_btn.config(
+                    text="Создать файлы",
+                    state=tk.DISABLED,  # или tk.NORMAL, если все условия выполнены
+                    command=self.create_files
+                )
         else:
-            self.create_btn.config(state=tk.DISABLED)
+            if self.create_btn is not None:
+                self.create_btn.config(state=tk.DISABLED)
     
 
     def create_files(self):
@@ -664,7 +690,8 @@ class CreateFilesWindow:
             print(f"new_employees_count: {getattr(self, 'new_employees_count', 'НЕТ АТРИБУТА')}")
             
             self.is_processing = True
-            self.create_btn.config(state=tk.DISABLED)
+            if self.create_btn is not None:
+                self.create_btn.config(state=tk.DISABLED)
             
             # Переключаемся на отображение прогресса
             self.show_progress_view()
@@ -688,14 +715,17 @@ class CreateFilesWindow:
                     def after_processing():
                         if self.stop_processing:
                             self.rollback_created_files()
-                        self.window.after(0, self.on_processing_complete, operation_log)
-                    self.window.after(0, after_processing)
+                        if self.window is not None:
+                            self.window.after(0, self.on_processing_complete, operation_log)
+                    if self.window is not None:
+                        self.window.after(0, after_processing)
                     
                 except Exception as e:
                     self.logger.error(f"Ошибка в потоке обработки: {e}")
                     import traceback
                     traceback.print_exc()
-                    self.window.after(0, self.on_processing_error, str(e))
+                    if self.window is not None:
+                        self.window.after(0, self.on_processing_error, str(e))
             
             thread = threading.Thread(target=processing_thread, daemon=True)
             thread.start()
@@ -703,19 +733,19 @@ class CreateFilesWindow:
     def show_progress_view(self):
         """Показывает область прогресса вместо информации"""
         self.info_frame.grid_remove()
-        self.progress_frame.grid(row=1, column=0, columnspan=3, pady=(0, 10), sticky=(tk.W, tk.E, tk.N, tk.S))
+        self.progress_frame.grid(row=1, column=0, columnspan=3, pady=(0, 10), sticky="nsew")
     
     def show_info_view(self):
         """Показывает область информации вместо прогресса"""
         self.progress_frame.grid_remove()
-        self.info_frame.grid(row=1, column=0, columnspan=3, pady=(0, 10), sticky=(tk.W, tk.E, tk.N, tk.S))
+        self.info_frame.grid(row=1, column=0, columnspan=3, pady=(0, 10), sticky="nsew")
 
     def on_progress_update(self, progress):
             """ИСПРАВЛЕНО: Обработчик обновления общего прогресса"""
             def update_ui():
                 try:
                     # Проверяем что окно еще существует
-                    if not self.window.winfo_exists():
+                    if self.window is None or not self.window.winfo_exists():
                         return
                         
                     # Общий процент
@@ -742,7 +772,7 @@ class CreateFilesWindow:
             
             # ИСПРАВЛЕНО: Используем правильный метод для обновления в главном потоке
             try:
-                if self.window.winfo_exists():
+                if self.window is not None and self.window.winfo_exists():
                     self.window.after(0, update_ui)
             except tk.TclError:
                 pass
@@ -751,7 +781,7 @@ class CreateFilesWindow:
             """ИСПРАВЛЕНО: Обработчик обновления прогресса по отделам"""
             def update_ui():
                 try:
-                    if not self.window.winfo_exists():
+                    if self.window is None or not self.window.winfo_exists():
                         return
                         
                     if total_depts > 0:
@@ -764,7 +794,7 @@ class CreateFilesWindow:
                     pass
             
             try:
-                if self.window.winfo_exists():
+                if self.window is not None and self.window.winfo_exists():
                     self.window.after(0, update_ui)
             except tk.TclError:
                 pass
@@ -773,7 +803,7 @@ class CreateFilesWindow:
             """ИСПРАВЛЕНО: Обработчик обновления прогресса по файлам в текущем отделе"""
             def update_ui():
                 try:
-                    if not self.window.winfo_exists():
+                    if self.window is None or not self.window.winfo_exists():
                         return
                         
                     if total_files > 0:
@@ -786,7 +816,7 @@ class CreateFilesWindow:
                     pass
             
             try:
-                if self.window.winfo_exists():
+                if self.window is not None and self.window.winfo_exists():
                     self.window.after(0, update_ui)
             except tk.TclError:
                 pass
@@ -795,7 +825,7 @@ class CreateFilesWindow:
         """Обработчик завершения создания файлов"""
         
         try:
-            if not self.window or not self.window.winfo_exists():
+            if self.window is None or not self.window.winfo_exists():
                 return
             
             # Останавливаем прогресс бар
@@ -854,11 +884,11 @@ class CreateFilesWindow:
                     log_entries = getattr(result, 'log_entries', [])
             
             # Обновляем счетчики (если элементы существуют)
-            if hasattr(self, 'created_count_label'):
+            if self.created_count_label is not None:
                 self.created_count_label.config(text=f"Создано: {created_count}")
-            if hasattr(self, 'skipped_count_label'):
+            if self.skipped_count_label is not None:
                 self.skipped_count_label.config(text=f"Пропущено: {skipped_count}")
-            if hasattr(self, 'error_count_label'):
+            if self.error_count_label is not None:
                 self.error_count_label.config(text=f"Ошибок: {error_count}")
             
             # Показываем итоговое сообщение
@@ -904,19 +934,19 @@ class CreateFilesWindow:
                             self.add_info_to_existing(message)
             
             # Обновляем статус (если элемент существует)
-            if hasattr(self, 'status_label'):
+            if self.status_label is not None:
                 self.status_label.config(text=status_message)
             
             # Включаем кнопки (если элементы существуют)
-            if hasattr(self, 'create_button'):
+            if self.create_button is not None:
                 self.create_button.config(state=tk.NORMAL)
-            if hasattr(self, 'back_button'):
+            if self.back_button is not None:
                 self.back_button.config(state=tk.NORMAL)
             
             # Устанавливаем флаг завершения
             self.is_processing = False
             
-            if hasattr(self, 'create_btn'):
+            if self.create_btn is not None:
                 self.create_btn.config(
                     text="Закрыть",
                     state=tk.NORMAL,
@@ -930,9 +960,12 @@ class CreateFilesWindow:
             # Безопасное завершение
             try:
                 self.add_info_to_existing(f"Ошибка при завершении: {e}")
-                self.status_label.config(text="Ошибка при завершении обработки")
-                self.create_button.config(state=tk.NORMAL)
-                self.back_button.config(state=tk.NORMAL)
+                if self.status_label is not None:
+                    self.status_label.config(text="Ошибка при завершении обработки")
+                if self.create_button is not None:
+                    self.create_button.config(state=tk.NORMAL)
+                if self.back_button is not None:
+                    self.back_button.config(state=tk.NORMAL)
                 self.is_processing = False
             except:
                 pass
@@ -940,7 +973,7 @@ class CreateFilesWindow:
     def on_processing_error(self, error_message):
         """ИСПРАВЛЕНО: Обработчик ошибки обработки"""
         try:
-            if not self.window.winfo_exists():
+            if self.window is None or not self.window.winfo_exists():
                 return
         except tk.TclError:
             return
@@ -955,7 +988,8 @@ class CreateFilesWindow:
         self.show_info_view()
         
         # Показываем кнопку "Перезапустить"
-        self.create_btn.config(text="Перезапустить", command=self.restart_process, state=tk.NORMAL)
+        if self.create_btn is not None:
+            self.create_btn.config(text="Перезапустить", command=self.restart_process, state=tk.NORMAL)
         
         messagebox.showerror("Ошибка", f"Критическая ошибка при создании файлов:\n{error_message}")
 
@@ -1016,7 +1050,7 @@ class CreateFilesWindow:
     def add_info_to_existing(self, message: str, level: str = "info"):
         """ИСПРАВЛЕНО: Добавляет информацию к существующему тексту"""
         try:
-            if not self.window.winfo_exists():
+            if self.window is None or not self.window.winfo_exists():
                 return
         except tk.TclError:
             return
@@ -1097,7 +1131,8 @@ class CreateFilesWindow:
             self.check_create_button_state()
         else:
             self.add_info("Выберите файл с сотрудниками и целевую папку для начала работы")
-            self.create_btn.config(state=tk.DISABLED, text="Создать файлы", command=self.create_files)
+            if self.create_btn is not None:
+                self.create_btn.config(state=tk.DISABLED, text="Создать файлы", command=self.create_files)
 
     def on_closing(self):
         """Обработчик закрытия окна"""
@@ -1110,7 +1145,8 @@ class CreateFilesWindow:
                 return
             self.stop_processing = True
             # Не вызываем rollback здесь! Откат будет вызван после завершения потока
-        self.window.destroy()
+        if self.window is not None:
+            self.window.destroy()
         if self.main_window:
             self.main_window.on_window_closed("create_files")
 

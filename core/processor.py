@@ -155,13 +155,23 @@ class VacationProcessor:
                         continue
                     
                     # Читаем файлы сотрудников
-                    employee_files = self.file_manager._scan_department_files(dept_path)
+                    employee_files = self.directory_manager._scan_department_files(dept_path)
                     vacation_infos = []
                     
                     files_processed_in_dept = 0
                     for file_path in employee_files:
+                        # Дополнительная проверка - исключаем отчеты и временные файлы
+                        filename = Path(file_path).name
+                        if (filename.startswith('~$') or 
+                            filename.startswith('Отчет') or 
+                            filename.startswith('отчет') or 
+                            'отчет' in filename.lower() or
+                            filename.startswith('ОБЩИЙ_ОТЧЕТ') or
+                            filename.startswith('общий_отчет')):
+                            continue
+                        
                         vacation_info = self.excel_handler.read_vacation_info_from_file(file_path)
-                        if vacation_info:
+                        if vacation_info and vacation_info.employee.get('ФИО работника'):
                             vacation_infos.append(vacation_info)
                         
                         files_processed_in_dept += 1
@@ -341,10 +351,10 @@ class VacationProcessor:
                     break
             
             if not exe_source_path:
-                error_msg = "Файл create_report.exe не найден для раскидывания по отделам"
-                operation_log.add_entry("ERROR", error_msg)
-                operation_log.finish(ProcessingStatus.ERROR)
-                return operation_log
+                warning_msg = "Файл create_report.exe не найден для раскидывания по отделам"
+                operation_log.add_entry("WARNING", warning_msg)
+                # operation_log.finish(ProcessingStatus.ERROR) # This line was removed as per the edit hint
+                # return operation_log # This line was removed as per the edit hint
             
             # Раскидываем exe по папкам
             for dept_info in selected_departments:
@@ -357,8 +367,9 @@ class VacationProcessor:
                     target_path = dept_path / target_filename
                     
                     try:
-                        shutil.copy2(exe_source_path, target_path)
-                        operation_log.add_entry("INFO", f"Скрипт скопирован в {dept_name}")
+                        if exe_source_path is not None:
+                            shutil.copy2(exe_source_path, target_path)
+                            operation_log.add_entry("INFO", f"Скрипт скопирован в {dept_name}")
                     except Exception as e:
                         operation_log.add_entry("ERROR", f"Ошибка копирования скрипта в {dept_name}: {e}")
             
