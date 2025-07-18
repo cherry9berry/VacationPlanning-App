@@ -72,7 +72,7 @@ class CreateFilesWindow:
         
         # Основной фрейм
         main_frame = ttk.Frame(self.window, padding="15")
-        main_frame.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
+        main_frame.grid(row=0, column=0, sticky="nsew")
         
         # Настройка сетки
         self.window.columnconfigure(0, weight=1)
@@ -92,7 +92,7 @@ class CreateFilesWindow:
     def setup_file_selection(self, parent):
         """Настройка области выбора файлов"""
         files_frame = ttk.LabelFrame(parent, text="Выбор файлов", padding="10")
-        files_frame.grid(row=0, column=0, columnspan=3, pady=(0, 15), sticky=(tk.W, tk.E))
+        files_frame.grid(row=0, column=0, columnspan=3, pady=(0, 15), sticky="ew")
         files_frame.columnconfigure(1, weight=1)
         
         # Файл с сотрудниками
@@ -106,7 +106,7 @@ class CreateFilesWindow:
             textvariable=self.staff_file_var,
             state="readonly"
         )
-        self.staff_file_entry.grid(row=0, column=1, sticky=(tk.W, tk.E), padx=(10, 5), pady=5)
+        self.staff_file_entry.grid(row=0, column=1, sticky="ew", padx=(10, 5), pady=5)
         
         ttk.Button(
             files_frame,
@@ -125,7 +125,7 @@ class CreateFilesWindow:
             textvariable=self.output_dir_var,
             state="readonly"
         )
-        self.output_dir_entry.grid(row=1, column=1, sticky=(tk.W, tk.E), padx=(10, 5), pady=5)
+        self.output_dir_entry.grid(row=1, column=1, sticky="ew", padx=(10, 5), pady=5)
         
         self.output_dir_btn = ttk.Button(
             files_frame,
@@ -140,7 +140,7 @@ class CreateFilesWindow:
         """Настройка области информации/прогресса"""
         # Информация (показывается по умолчанию)
         self.info_frame = ttk.LabelFrame(parent, text="Информация", padding="10")
-        self.info_frame.grid(row=1, column=0, columnspan=3, pady=(0, 15), sticky=(tk.W, tk.E, tk.N, tk.S))
+        self.info_frame.grid(row=1, column=0, columnspan=3, pady=(0, 15), sticky="nsew")
         self.info_frame.columnconfigure(0, weight=1)
         self.info_frame.rowconfigure(0, weight=1)
         

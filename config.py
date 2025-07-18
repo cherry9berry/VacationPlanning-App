@@ -25,7 +25,7 @@ class Config:
         # Путь к шаблону отчета по блоку
         "block_report_template": "templates/block_report_template v3.xlsx", 
         # Путь к шаблону общего отчета
-        "general_report_template": "templates/global_report_template.xlsx",
+        "general_report_template": "templates/global_report_template v3.xlsx",
         # Номер строки с заголовками в Excel-файле сотрудников
         "header_row": 5,
         # Оценочное время обработки одного файла (секунды)
@@ -80,8 +80,7 @@ class Config:
             },
             "vacation_columns": {
                 "start_date": "C",
-                "end_date": "D",
-                "days": "G"
+                "end_date": "D"
             },
             "status_cell": "B12"
         }

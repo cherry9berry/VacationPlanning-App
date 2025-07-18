@@ -348,6 +348,7 @@ class ExcelHandler:
                 employee_cols = file_structure.get("employee_columns", {})
                 data_rows = file_structure.get("employee_data_rows", {"start": 15, "end": 29})
                 
+                # Читаем данные сотрудника из первой строки (15)
                 employee = {
                     "ФИО работника": str(self._get_cell_value(worksheet, f"{employee_cols.get('full_name', 'C')}{data_rows['start']}") or "").strip(),
                     "Табельный номер": str(self._get_cell_value(worksheet, f"{employee_cols.get('tab_number', 'B')}{data_rows['start']}") or "").strip(),
@@ -358,17 +359,17 @@ class ExcelHandler:
                     "Подразделение 4": str(self._get_cell_value(worksheet, dept_cells.get("department4", "C5")) or "").strip()
                 }
             
-            # Читаем периоды отпусков из конфига
+            # Читаем периоды отпусков из всех строк с 15 по 29
             file_structure = self.config.employee_file_structure
             vacation_columns = file_structure.get("vacation_columns", {})
             data_rows = file_structure.get("employee_data_rows", {"start": 15, "end": 29})
             
             periods = []
             for row in range(data_rows["start"], data_rows["end"] + 1):
-                start_date_value = self._get_cell_value(worksheet, f"{vacation_columns.get('start_date', 'E')}{row}")
-                end_date_value = self._get_cell_value(worksheet, f"{vacation_columns.get('end_date', 'F')}{row}")
-                days_value = self._get_cell_value(worksheet, f"{vacation_columns.get('days', 'G')}{row}")
+                start_date_value = self._get_cell_value(worksheet, f"{vacation_columns.get('start_date', 'C')}{row}")
+                end_date_value = self._get_cell_value(worksheet, f"{vacation_columns.get('end_date', 'D')}{row}")
                 
+                # Если начало или конец периода не указаны - пропускаем эту строку
                 if not start_date_value or not end_date_value:
                     continue
                 
@@ -376,11 +377,22 @@ class ExcelHandler:
                     start_date = self._parse_date(start_date_value)
                     end_date = self._parse_date(end_date_value)
                     
+                    # Если не удалось распарсить даты - пропускаем
                     if not start_date or not end_date:
                         continue
                     
-                    days = int(days_value) if days_value else (end_date - start_date).days + 1
-                    periods.append(VacationPeriod(start_date=start_date, end_date=end_date, days=days))
+                    # Суммируем продолжительность из столбца E с 15 по 29 строку
+                    total_days = 0
+                    for days_row in range(data_rows["start"], data_rows["end"] + 1):
+                        days_value = self._get_cell_value(worksheet, f"E{days_row}")
+                        if days_value and isinstance(days_value, (int, float)):
+                            total_days += int(days_value)
+                    
+                    # Если сумма не найдена, вычисляем по датам
+                    if total_days == 0:
+                        total_days = (end_date - start_date).days + 1
+                    
+                    periods.append(VacationPeriod(start_date=start_date, end_date=end_date, days=total_days))
                     
                 except Exception as e:
                     self.logger.warning(f"Ошибка обработки периода в строке {row}: {e}")
@@ -700,6 +712,69 @@ class ExcelHandler:
             self.logger.error(f"Ошибка чтения отчета {report_path}: {e}")
             return None
 
+    def read_block_report_data_by_rules(self, report_path: str) -> Optional[Dict]:
+        """Читает данные из отчета по блоку используя его rules"""
+        try:
+            # Загружаем rules отчета по блоку
+            block_rules = self._load_filling_rules(report_path)
+            
+            workbook = openpyxl.load_workbook(report_path, data_only=True, read_only=True)
+            if 'Report' not in workbook.sheetnames:
+                return None
+            
+            worksheet = workbook['Report']
+            
+            # Читаем данные по rules
+            data = {}
+            
+            # Читаем value правила (основные данные отчета)
+            value_rules = block_rules.get('value', {})
+            for cell_address, field_name in value_rules.items():
+                try:
+                    is_formula, clean_address, sheet_name = self._parse_cell_address(cell_address)
+                    if sheet_name is None:
+                        sheet_name = 'Report'
+                    
+                    if sheet_name in workbook.sheetnames:
+                        value = workbook[sheet_name][clean_address].value
+                        data[field_name] = value
+                except Exception as e:
+                    self.logger.warning(f"Ошибка чтения {cell_address}: {e}")
+            
+            # Название блока должно быть в value правилах как block_name
+            # Если нет, то используем пустое значение
+            if 'block_name' not in data:
+                data['block_name'] = ""
+            
+            workbook.close()
+            
+            # Подготавливаем результат
+            block_name = data.get('block_name', '')
+            total_employees = int(data.get('total_employees', 0))
+            employees_filled = int(data.get('employees_filled', 0))
+            employees_correct = int(data.get('employees_correct', 0))
+            update_date = str(data.get('update_date', ''))
+            
+            # Вычисляем дополнительные поля
+            remaining_employees = total_employees - employees_correct
+            percentage = round((employees_correct / total_employees * 100) if total_employees > 0 else 0, 0)
+            
+            return {
+                'block_name': block_name,
+                'total_employees': total_employees,
+                'completed_employees': employees_correct,
+                'remaining_employees': remaining_employees,
+                'percentage': percentage,
+                'update_date': update_date,
+                'employees_filled': employees_filled,
+                'employees_incorrect': employees_filled - employees_correct,
+                'employees_not_filled': total_employees - employees_filled
+            }
+            
+        except Exception as e:
+            self.logger.error(f"Ошибка чтения отчета {report_path}: {e}")
+            return None
+
     def create_general_report_from_blocks(self, block_data: List[Dict], output_path: str) -> bool:
         """Создает общий отчет"""
         template_path = Path(self.config.general_report_template)
@@ -749,6 +824,118 @@ class ExcelHandler:
         workbook.save(output_path)
         workbook.close()
         return True
+
+    def create_general_report_from_blocks_with_rules(self, block_data: List[Dict], output_path: str) -> bool:
+        """Создает общий отчет используя rules"""
+        template_path = Path(self.config.general_report_template)
+        if not template_path.exists():
+            raise FileNotFoundError(f"Шаблон общего отчета не найден: {template_path}")
+        
+        Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(template_path, output_path)
+        
+        # Загружаем rules общего отчета
+        rules = self._load_filling_rules(str(template_path))
+        
+        workbook = openpyxl.load_workbook(output_path)
+        
+        # Заполняем общие данные (value правила)
+        current_time = datetime.now()
+        general_data = {
+            'update_date2': current_time.strftime('%d.%m.%Y %H:%M'),
+            'blocks_count': len(block_data)
+        }
+        
+        self._apply_rules_to_template(workbook, rules, general_data)
+        
+        # Заполняем таблицу данных (header правила)
+        self._fill_general_report_table(workbook, block_data, rules)
+        
+        workbook.save(output_path)
+        workbook.close()
+        return True
+
+    def _fill_general_report_table(self, workbook, block_data: List[Dict], rules: Dict[str, Dict[str, str]]):
+        """Заполняет таблицу общего отчета по rules"""
+        if 'Report' not in workbook.sheetnames:
+            return
+        
+        worksheet = workbook['Report']
+        header_rules = rules.get('header', {})
+        
+        # Собираем mapping: имя поля -> столбец и строка
+        column_mapping = {}
+        for cell_address, field_name in header_rules.items():
+            try:
+                is_formula, clean_address, sheet_name = self._parse_cell_address(cell_address)
+                if sheet_name is None:
+                    sheet_name = 'Report'
+                
+                if sheet_name == 'Report':
+                    col_match = re.search(r'([A-Z]+)', clean_address)
+                    row_match = re.search(r'(\d+)', clean_address)
+                    if col_match and row_match:
+                        column_mapping[field_name] = (col_match.group(1), int(row_match.group(1)))
+            except Exception as e:
+                self.logger.warning(f"Ошибка парсинга адреса {cell_address}: {e}")
+        
+        if not column_mapping:
+            return
+        
+        # Заполняем данные
+        for i, data in enumerate(block_data):
+            row = 8 + i  # Начинаем с 8-й строки
+            
+            # Вставляем строку если нужно
+            if i > 0:
+                worksheet.insert_rows(row, 1)
+            
+            # Заполняем каждое поле
+            for field_name, (col, header_row) in column_mapping.items():
+                cell_address = f"{col}{row}"
+                
+                if field_name == 'row_number2':
+                    value = i + 1
+                elif field_name == 'report_department1':
+                    value = data.get('block_name', '')
+                elif field_name == 'percentage':
+                    value = f"{data.get('percentage', 0)}%"
+                elif field_name == 'employees_count':
+                    value = data.get('total_employees', 0)
+                elif field_name == 'correct_filled':
+                    value = data.get('completed_employees', 0)
+                elif field_name == 'incorrect_filled':
+                    value = data.get('employees_incorrect', 0)
+                elif field_name == 'not_filled':
+                    value = data.get('employees_not_filled', 0)
+                elif field_name == 'update_date':
+                    value = data.get('update_date', '')
+                else:
+                    value = ''
+                
+                # Преобразуем значение к правильному типу
+                converted_value = self._convert_value_type(value)
+                worksheet[cell_address] = converted_value
+        
+        # Применяем границы
+        if block_data:
+            self._apply_borders_to_general_table(worksheet, len(block_data))
+
+    def _apply_borders_to_general_table(self, worksheet, data_count: int):
+        """Применяет границы к таблице общего отчета"""
+        thin_border = Border(left=Side(style='thin'), right=Side(style='thin'), 
+                           top=Side(style='thin'), bottom=Side(style='thin'))
+        
+        start_row = 8
+        end_row = start_row + data_count - 1
+        
+        # Определяем количество столбцов по правилам
+        max_col = 8  # Фиксированное количество столбцов для общего отчета
+        
+        # Применяем границы
+        for row in range(start_row, end_row + 1):
+            for col in range(1, max_col + 1):
+                worksheet.cell(row=row, column=col).border = thin_border
 
     def _get_cell_value(self, worksheet, cell_address: str):
         """Безопасно получает значение ячейки"""

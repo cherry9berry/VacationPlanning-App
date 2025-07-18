@@ -593,8 +593,8 @@ class VacationProcessor:
                 block_report_path = self._find_latest_block_report(str(dept_path), dept_name)
                 
                 if block_report_path:
-                    # Читаем данные из отчета
-                    block_info = self.excel_handler.read_block_report_data(block_report_path)
+                    # Читаем данные из отчета используя rules
+                    block_info = self.excel_handler.read_block_report_data_by_rules(block_report_path)
                     if block_info:
                         block_data.append(block_info)
                         operation_log.add_entry("INFO", f"Данные собраны из отчета для {dept_name}")
@@ -623,7 +623,7 @@ class VacationProcessor:
             report_filename = f"ОБЩИЙ_ОТЧЕТ_{timestamp}.xlsx"
             report_path = Path(base_directory) / report_filename
             
-            success = self.excel_handler.create_general_report_from_blocks(
+            success = self.excel_handler.create_general_report_from_blocks_with_rules(
                 block_data, str(report_path)
             )
             
