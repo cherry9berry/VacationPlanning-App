@@ -17,6 +17,7 @@ import os
 
 from config import Config
 from core.processor import VacationProcessor
+from core.events import event_bus, EventType
 from models import ProcessingProgress, ProcessingStatus
 
 
@@ -30,7 +31,7 @@ class CreateFilesWindow:
         self.config = config
         self.main_window = main_window
         self.logger = logging.getLogger(__name__)
-        self.processor = VacationProcessor(config, window_ref=self)
+        self.processor = VacationProcessor(config)
         
         # Состояние
         self.staff_file_path = ""
@@ -58,7 +59,35 @@ class CreateFilesWindow:
         # Инициализация переменной прогресса для совместимости с on_processing_complete
         self.progress_var = tk.IntVar(value=0)
         self.stop_processing = False
+        
+        # Подписка на события
+        self._setup_event_listeners()
+        
         self.setup_ui()
+
+    def _setup_event_listeners(self):
+        """Настройка подписки на события"""
+        event_bus.subscribe(EventType.FILE_CREATED, self._on_file_created)
+        event_bus.subscribe(EventType.DIRECTORY_CREATED, self._on_directory_created)
+        event_bus.subscribe(EventType.ERROR_OCCURRED, self._on_error_occurred)
+    
+    def _on_file_created(self, event):
+        """Обработчик события создания файла"""
+        file_path = event.data.get("file_path")
+        if file_path and hasattr(self, 'created_files'):
+            self.created_files.append(file_path)
+    
+    def _on_directory_created(self, event):
+        """Обработчик события создания папки"""
+        directory_path = event.data.get("directory_path")
+        if directory_path and hasattr(self, 'created_dirs'):
+            self.created_dirs.append(directory_path)
+    
+    def _on_error_occurred(self, event):
+        """Обработчик события ошибки"""
+        error = event.data.get("error")
+        if error:
+            self.logger.error(f"Ошибка из системы событий: {error}")
 
     def setup_ui(self):
         """Настройка пользовательского интерфейса"""

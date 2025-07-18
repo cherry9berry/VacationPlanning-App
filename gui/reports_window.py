@@ -15,6 +15,7 @@ import time
 
 from config import Config
 from core.processor import VacationProcessor
+from core.events import event_bus, EventType
 from models import ProcessingProgress, ProcessingStatus
 
 
@@ -38,7 +39,41 @@ class ReportTab:
         # НОВЫЕ ПЕРЕМЕННЫЕ для отслеживания повторных выборов
         self.path_reselected = False
         
+        # Подписка на события
+        self._setup_event_listeners()
+        
         self.setup_tab_ui()
+    
+    def _setup_event_listeners(self):
+        """Настройка подписки на события"""
+        event_bus.subscribe(EventType.FILE_CREATED, self._on_file_created)
+        event_bus.subscribe(EventType.DIRECTORY_CREATED, self._on_directory_created)
+        event_bus.subscribe(EventType.ERROR_OCCURRED, self._on_error_occurred)
+        event_bus.subscribe(EventType.PROGRESS_UPDATE, self._on_progress_updated)
+    
+    def _on_file_created(self, event):
+        """Обработчик события создания файла"""
+        file_path = event.data.get("file_path")
+        if file_path:
+            self.add_info(f"Файл создан: {file_path}", "success")
+    
+    def _on_directory_created(self, event):
+        """Обработчик события создания папки"""
+        directory_path = event.data.get("directory_path")
+        if directory_path:
+            self.add_info(f"Папка создана: {directory_path}", "success")
+    
+    def _on_error_occurred(self, event):
+        """Обработчик события ошибки"""
+        error = event.data.get("error")
+        if error:
+            self.add_info(f"Ошибка: {error}", "error")
+    
+    def _on_progress_updated(self, event):
+        """Обработчик события обновления прогресса"""
+        progress = event.data.get("progress")
+        if progress:
+            self.add_info(f"Прогресс: {progress.current_operation}")
     
     def add_info(self, message: str, level: str = "info"):
         """Добавляет информационное сообщение"""

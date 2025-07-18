@@ -12,6 +12,7 @@ from typing import Optional
 
 from config import Config
 from core.processor import VacationProcessor
+from core.events import EventBus, EventType
 from gui.create_files_window import CreateFilesWindow
 from gui.reports_window import ReportsWindow
 
@@ -31,6 +32,9 @@ class MainWindow:
         
         # Переменная для отслеживания состояния шаблонов
         self.templates_ok = False
+        
+        # Подписываемся на события
+        self.setup_event_listeners()
         
         self.setup_ui()
         self.check_templates()
@@ -160,6 +164,51 @@ class MainWindow:
         # Вставляем инструкции
         self.insert_instructions()
         self.instructions_text.config(state=tk.DISABLED)
+    
+    def setup_event_listeners(self):
+        """Настраивает подписку на события"""
+        event_bus = EventBus()
+        
+        # Подписываемся на события создания файлов
+        event_bus.subscribe(EventType.FILE_CREATED, self._on_file_created)
+        event_bus.subscribe(EventType.DIRECTORY_CREATED, self._on_directory_created)
+        event_bus.subscribe(EventType.ERROR_OCCURRED, self._on_error_occurred)
+        event_bus.subscribe(EventType.PROGRESS_UPDATE, self._on_progress_updated)
+    
+    def _on_file_created(self, event):
+        """Обработчик события создания файла"""
+        file_path = event.data.get("file_path")
+        employee = event.data.get("employee", {})
+        skipped = event.data.get("skipped", False)
+        
+        if skipped:
+            self.logger.info(f"Файл пропущен (уже существует): {file_path}")
+        else:
+            self.logger.info(f"Файл создан: {file_path}")
+    
+    def _on_directory_created(self, event):
+        """Обработчик события создания папки"""
+        directory_path = event.data.get("directory_path")
+        self.logger.info(f"Папка создана: {directory_path}")
+    
+    def _on_error_occurred(self, event):
+        """Обработчик события ошибки"""
+        error = event.data.get("error")
+        employee = event.data.get("employee", {})
+        
+        error_msg = f"Ошибка: {error}"
+        if employee:
+            error_msg += f" (Сотрудник: {employee.get('ФИО работника', 'Неизвестно')})"
+        
+        self.logger.error(error_msg)
+        messagebox.showerror("Ошибка", error_msg)
+    
+    def _on_progress_updated(self, event):
+        """Обработчик события обновления прогресса"""
+        progress = event.data.get("progress")
+        if progress:
+            # Здесь можно обновить прогресс-бар или статус
+            self.logger.debug(f"Прогресс: {progress.current_operation}")
     
     def copy_selected_text(self):
         """Копирует выделенный текст в буфер обмена"""

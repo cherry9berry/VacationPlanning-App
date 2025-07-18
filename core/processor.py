@@ -19,6 +19,8 @@ from core.validator import Validator
 from core.excel_handler import ExcelHandler
 from core.file_manager import FileManager
 from core.performance_tracker import PerformanceTracker
+from core.employee_file_creator import EmployeeFileCreator
+from core.directory_manager import DirectoryManager
 
 import shutil
 import re
@@ -27,14 +29,15 @@ import re
 class VacationProcessor:
     """Основной класс для обработки операций с отпусками"""
     
-    def __init__(self, config, window_ref=None):
+    def __init__(self, config):
         self.config = config
         self.logger = logging.getLogger(__name__)
         self.validator = Validator(config)
         self.excel_handler = ExcelHandler(config)
         self.file_manager = FileManager(config)
         self.performance_tracker = PerformanceTracker()
-        self.window_ref = window_ref
+        self.employee_file_creator = EmployeeFileCreator(config)
+        self.directory_manager = DirectoryManager(config)
 
     def create_employee_files_to_existing(
             self, 
@@ -47,223 +50,16 @@ class VacationProcessor:
         ) -> OperationLog:
             """
             Создает файлы сотрудников в существующей папке
+            Делегирует выполнение специализированному классу EmployeeFileCreator
             """
-            operation_log = OperationLog("Создание файлов сотрудников в существующей структуре")
-            operation_log.add_entry("INFO", "Начало создания файлов сотрудников")
-            
-            try:
-                start_time = datetime.now()
-                progress = ProcessingProgress(
-                    current_operation="Начало обработки",
-                    start_time=start_time
-                )
-                
-                if progress_callback:
-                    progress_callback(progress)
-                
-                # 1. Валидация файла штатного расписания
-                progress.current_operation = "Валидация файла штатного расписания"
-                progress.current_file = Path(staff_file_path).name
-                if progress_callback:
-                    progress_callback(progress)
-                
-                validation_result, employees = self.validator.validate_staff_file(staff_file_path)
-                self.logger.info(f"Валидация завершена, найдено {len(employees)} сотрудников")
-                
-                if not validation_result.is_valid:
-                    operation_log.add_entry("ERROR", f"Валидация не пройдена: {validation_result.errors}")
-                    operation_log.finish(ProcessingStatus.ERROR)
-                    return operation_log
-                
-                operation_log.add_entry("INFO", f"Валидация пройдена. Найдено сотрудников: {len(employees)}")
-                
-                # 2. Используем только сотрудников для создания, если передан список
-                if employees_to_create is not None:
-                    employees = employees_to_create
-                # Группировка сотрудников по отделам
-                self.logger.debug("Группируем сотрудников")
-                progress.current_operation = "Группировка сотрудников по отделам"
-                if progress_callback:
-                    progress_callback(progress)
-                employees_by_dept = self.file_manager.group_employees_by_department(employees)
-                self.logger.debug(f"Сгруппировано по {len(employees_by_dept)} отделам")
-                
-                # 3. Создание структуры папок
-                self.logger.debug("Создаем структуру папок")
-                progress.current_operation = "Подготовка структуры папок"
-                if progress_callback:
-                    progress_callback(progress)
-
-                # --- ОТСЛЕЖИВАНИЕ НОВЫХ ПАПОК ---
-                departments = {}
-                new_dirs = []
-                dept_set = set()
-                for emp in employees:
-                    if emp['Подразделение 1']:
-                        dept_set.add(emp['Подразделение 1'])
-                output_path = Path(target_directory)
-                for dept in dept_set:
-                    clean_dept_name = self.file_manager._clean_directory_name(dept)
-                    dept_path = output_path / clean_dept_name
-                    if not dept_path.exists():
-                        dept_path.mkdir(parents=True, exist_ok=True)
-                        self.logger.info(f"Создана папка отдела: {clean_dept_name}")
-                        new_dirs.append(str(dept_path))
-                    else:
-                        self.logger.info(f"Используется существующая папка: {clean_dept_name}")
-                    departments[dept] = str(dept_path)
-                self.logger.info(f"Подготовлено отделов: {len(departments)}")
-                # --- РЕГИСТРАЦИЯ НОВЫХ ПАПОК ДЛЯ ОТКАТА ---
-                if self.window_ref is not None:
-                    self.window_ref.created_dirs.extend(new_dirs)
-                
-                # 4. Подготовка прогресса
-                total_departments = len(employees_by_dept)
-                total_employees = len(employees)
-                
-                progress.total_blocks = total_departments
-                progress.total_files = total_employees
-                progress.processed_blocks = 0
-                progress.processed_files = 0
-                
-                self.logger.debug(f"Подготовлено {total_departments} отделов, {total_employees} сотрудников")
-                if progress_callback:
-                    progress_callback(progress)
-                
-                # 5. Начинаем отслеживание производительности
-                self.excel_handler.performance_tracker.start_batch()
-                
-                # 6. Создание файлов по отделам
-                self.logger.debug("Начинаем создание файлов")
-                total_success_count = 0
-                total_skipped_count = 0
-                total_error_count = 0
-                
-                for dept_idx, (dept_name, dept_employees) in enumerate(employees_by_dept.items()):
-                    # Проверка на остановку процесса
-                    if self.window_ref and getattr(self.window_ref, 'stop_processing', False):
-                        return operation_log
-                    
-                    progress.current_operation = f"Обработка отдела: {dept_name}"
-                    progress.current_block = dept_name
-                    progress.processed_blocks = dept_idx
-                    
-                    if department_progress_callback:
-                        department_progress_callback(dept_idx, total_departments, dept_name)
-                    
-                    if progress_callback:
-                        progress_callback(progress)
-                    
-                    dept_path = departments.get(dept_name)
-                    if not dept_path:
-                        operation_log.add_entry("ERROR", f"Папка для отдела {dept_name} не найдена")
-                        continue
-                    
-                    
-                    # Счетчики для текущего отдела
-                    dept_success_count = 0
-                    dept_skipped_count = 0
-                    dept_error_count = 0
-                    
-                    # Обрабатываем сотрудников в текущем отделе
-                    for emp_idx, employee in enumerate(dept_employees):
-                        # Проверка на остановку процесса
-                        if self.window_ref and getattr(self.window_ref, 'stop_processing', False):
-                            return operation_log
-                        try:
-                            # Генерируем имя файла
-                            filename = self.excel_handler.generate_output_filename(employee)
-                            output_path = Path(dept_path) / filename
-                            # Здесь не проверяем существование файла, т.к. employees уже отфильтрованы
-                            # Создаем файл сотрудника
-                            success = self.excel_handler.create_employee_file(employee, str(output_path))
-                            if success:
-                                dept_success_count += 1
-                                total_success_count += 1
-                                message = f"Создан: {employee['ФИО работника']}"
-                                # --- РЕГИСТРАЦИЯ СОЗДАННОГО ФАЙЛА ДЛЯ ОТКАТА ---
-                                if self.window_ref is not None:
-                                    self.window_ref.created_files.append(str(output_path))
-                            else:
-                                dept_error_count += 1
-                                total_error_count += 1
-                                message = f"Ошибка создания: {employee['ФИО работника']}"
-                            progress.processed_files += 1
-                            # Обновляем прогресс по файлам в отделе
-                            if file_progress_callback:
-                                file_progress_callback(emp_idx + 1, len(dept_employees), message)
-                            # Обновляем общий прогресс
-                            if progress_callback:
-                                progress_callback(progress)
-                            # Минимальная задержка для обновления UI
-                            time.sleep(0.001)
-                        except Exception as e:
-                            dept_error_count += 1
-                            total_error_count += 1
-                            self.logger.error(f"Ошибка создания файла для {employee['ФИО работника']}: {e}")
-                            progress.processed_files += 1
-                            if file_progress_callback:
-                                file_progress_callback(emp_idx + 1, len(dept_employees), f"Ошибка: {employee['ФИО работника']}")
-                            if progress_callback:
-                                progress_callback(progress)
-                    
-                    # Логируем результаты по отделу
-                    if dept_success_count > 0 or dept_skipped_count > 0 or dept_error_count > 0:
-                        operation_log.add_entry("INFO", f"Отдел {dept_name}: создано {dept_success_count}, пропущено {dept_skipped_count}")
-                    
-                    # Завершаем обработку отдела
-                    progress.processed_blocks = dept_idx + 1
-                    
-                    if department_progress_callback:
-                        department_progress_callback(dept_idx + 1, total_departments, dept_name)
-                
-                # 6. Завершение
-                end_time = datetime.now()
-                duration = end_time - start_time
-                
-                progress.current_operation = "Файлы созданы"
-                progress.end_time = end_time
-                if progress_callback:
-                    progress_callback(progress)
-                
-                # Получаем отчет о производительности
-                performance_report = self.excel_handler.performance_tracker.finish_batch()
-                
-                # Итоговая статистика
-                operation_log.add_entry("INFO", f"Создание файлов завершено")
-                operation_log.add_entry("INFO", f"Успешно создано: {total_success_count} файлов")
-                operation_log.add_entry("INFO", f"Пропущено (уже существует): {total_skipped_count} файлов")
-                
-                if total_error_count > 0:
-                    operation_log.add_entry("WARNING", f"Ошибок при создании: {total_error_count} файлов")
-                
-                # Добавляем статистику производительности
-                operation_log.add_entry("INFO", f"Время выполнения: {duration}")
-                operation_log.add_entry("INFO", f"Среднее время на файл: {performance_report.average_duration_per_file:.2f}с")
-                
-                # Выводим подробный отчет о производительности в консоль
-                print("\n" + performance_report.format_report())
-                
-                # Очищаем кэш для освобождения памяти
-                self.excel_handler.clear_cache()
-                
-                operation_log.add_entry("INFO", f"Время выполнения: {duration.total_seconds():.1f} сек")
-                operation_log.finish(ProcessingStatus.SUCCESS)
-                
-                self.logger.info(f"Создание файлов завершено: {total_success_count} создано, {total_skipped_count} пропущено, {total_error_count} ошибок")
-                
-                return operation_log
-                
-            except Exception as e:
-                import traceback
-                traceback.print_exc()
-                
-                error_msg = f"Критическая ошибка: {e}"
-                operation_log.add_entry("ERROR", error_msg)
-                self.logger.error(error_msg, exc_info=True)
-                operation_log.finish(ProcessingStatus.ERROR)
-                
-                return operation_log
+            return self.employee_file_creator.create_employee_files(
+                staff_file_path=staff_file_path,
+                target_directory=target_directory,
+                progress_callback=progress_callback,
+                department_progress_callback=department_progress_callback,
+                file_progress_callback=file_progress_callback,
+                employees_to_create=employees_to_create
+            )
 
     def _clean_filename_for_exe(self, filename: str) -> str:
         """Очищает имя файла для exe от недопустимых символов"""
@@ -291,12 +87,12 @@ class VacationProcessor:
             Dict[str, int]: {название_подразделения: количество_файлов}
         """
         try:
-            departments = self.file_manager.scan_existing_departments(target_directory)
+            departments = self.directory_manager.scan_existing_departments(target_directory)
             
             # Подсчитываем файлы в каждом подразделении
             departments_info = {}
             for dept_name, dept_path in departments.items():
-                files = self.file_manager._scan_department_files(Path(dept_path))
+                files = self.directory_manager._scan_department_files(Path(dept_path))
                 departments_info[dept_name] = len(files)
             
             return departments_info

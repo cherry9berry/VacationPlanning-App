@@ -16,6 +16,8 @@ from openpyxl.styles import Border, Side
 from models import Employee, VacationInfo, VacationPeriod, VacationStatus
 from config import Config
 from core.performance_tracker import PerformanceTracker, FilePerformanceStats
+from core.directory_manager import DirectoryManager
+from core.data_mapper import DataMapper
 
 
 class ExcelHandler:
@@ -27,7 +29,10 @@ class ExcelHandler:
         self._cached_rules = {}
         self._cached_templates = {}
         self._cached_workbooks = {}
+        self._cached_cell_addresses = {}  # Кэш для парсинга адресов ячеек
         self.performance_tracker = PerformanceTracker()
+        self.directory_manager = DirectoryManager(config)
+        self.data_mapper = DataMapper()
     
     def _get_cached_rules(self, template_path: str) -> Dict[str, Dict[str, str]]:
         """Получает rules из кэша или загружает их"""
@@ -58,9 +63,13 @@ class ExcelHandler:
                 file_stats.finish(False, f"Шаблон не найден: {template_path}")
                 raise FileNotFoundError(f"Шаблон сотрудника не найден: {template_path}")
             
-            Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+            self.directory_manager.ensure_directory_exists(Path(output_path).parent)
+            
+            # Используем кэшированный шаблон для копирования
+            cached_template = self._get_cached_template_workbook(str(template_path))
             shutil.copy2(template_path, output_path)
             
+            # Получаем кэшированные rules
             rules = self._get_cached_rules(str(template_path))
             
             # Подготавливаем данные сотрудника
@@ -71,6 +80,7 @@ class ExcelHandler:
                     value = ''
                 data_dict[field_name] = value
             
+            # Загружаем файл для редактирования
             workbook = openpyxl.load_workbook(
                 output_path,
                 data_only=False,
@@ -78,6 +88,7 @@ class ExcelHandler:
                 keep_links=False
             )
             
+            # Применяем правила заполнения
             self._apply_rules_to_template(workbook, rules, data_dict)
             
             workbook.save(output_path)
@@ -108,11 +119,17 @@ class ExcelHandler:
 
     def _parse_cell_address(self, address: str) -> tuple:
         """Парсит адрес ячейки, возвращает (is_formula, clean_address, sheet_name)"""
+        # Проверяем кэш
+        if address in self._cached_cell_addresses:
+            return self._cached_cell_addresses[address]
+        
         is_formula = address.startswith('=')
         
         if is_formula:
+            # Убираем знак равенства и извлекаем адрес
             formula = address[1:]
             
+            # Простой парсинг для формул вида 'Лист'!A1
             if '!' in formula:
                 sheet_part, cell_part = formula.split('!', 1)
                 sheet_name = sheet_part.strip("'\"")
@@ -121,10 +138,13 @@ class ExcelHandler:
                 sheet_name = None
                 clean_address = formula.strip()
         else:
+            # Обычный адрес - может быть именованный диапазон
             sheet_name = None
             clean_address = address.strip()
         
-        return is_formula, clean_address, sheet_name
+        result = (is_formula, clean_address, sheet_name)
+        self._cached_cell_addresses[address] = result
+        return result
 
     def _convert_value_type(self, value):
         """Преобразует значение к правильному типу данных для Excel"""
@@ -152,6 +172,14 @@ class ExcelHandler:
             pass
         
         return str_value
+    
+    def _fill_cell_fast(self, worksheet, address: str, value):
+        """Быстрое заполнение ячейки без сложных проверок"""
+        try:
+            cell = worksheet[address]
+            cell.value = value
+        except Exception as e:
+            self.logger.error(f"Ошибка при быстром заполнении {address}: {e}")
     
     def _fill_cell_or_range(self, workbook, sheet_name: str, address: str, value):
         """Заполняет ячейку или диапазон значением с правильным типом данных"""
@@ -257,6 +285,7 @@ class ExcelHandler:
         self._cached_workbooks.clear()
         self._cached_rules.clear()
         self._cached_templates.clear()
+        self._cached_cell_addresses.clear()
 
     def _load_filling_rules(self, template_path: str) -> Dict[str, Dict[str, str]]:
         """Загружает правила заполнения из листа 'rules'"""
@@ -443,7 +472,7 @@ class ExcelHandler:
         template_path = Path(self.config.block_report_template)
         if not template_path.exists():
             raise FileNotFoundError(f"Шаблон отчета не найден: {template_path}")
-        Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+        self.directory_manager.ensure_directory_exists(Path(output_path).parent)
         shutil.copy2(template_path, output_path)
         rules = self._load_filling_rules(str(template_path))
         workbook = openpyxl.load_workbook(output_path)
@@ -454,33 +483,8 @@ class ExcelHandler:
 
     def _fill_report_with_rules(self, workbook, block_name: str, vacation_infos: List[VacationInfo], rules: Dict[str, Dict[str, str]]):
         """Заполняет отчет используя rules"""
-        current_time = datetime.now()
-        total_employees = len(vacation_infos)
-        
-        # Подсчет статусов
-        not_filled_count = 0
-        filled_incorrect_count = 0
-        filled_correct_count = 0
-        
-        for vi in vacation_infos:
-            if vi.status == VacationStatus.NOT_FILLED:
-                not_filled_count += 1
-            elif vi.status == VacationStatus.FILLED_INCORRECT:
-                filled_incorrect_count += 1
-            elif vi.status == VacationStatus.FILLED_CORRECT:
-                filled_correct_count += 1
-        
-        employees_filled = filled_incorrect_count + filled_correct_count
-        employees_correct = filled_correct_count
-        
-        # Данные для заполнения
-        report_data = {
-            'block_name': block_name,
-            'update_date': current_time.strftime('%d.%m.%Y %H:%M'),
-            'total_employees': str(total_employees),
-            'employees_filled': str(employees_filled),
-            'employees_correct': str(employees_correct),
-        }
+        # Используем DataMapper для динамического маппинга заголовка
+        report_data = self.data_mapper.map_report_header_data(block_name, vacation_infos)
         
         # Применяем rules
         self._apply_rules_to_template(workbook, rules, report_data)
@@ -495,11 +499,11 @@ class ExcelHandler:
     def _fill_employee_tables(self, workbook, vacation_infos: List[VacationInfo], rules: Dict[str, Dict[str, str]]):
         """Заполняет таблицы сотрудников на Report и Print листах"""
         if 'Report' in workbook.sheetnames:
-            self._fill_table_by_prefix(workbook['Report'], vacation_infos, rules, 'report_', self._get_report_row_data)
+            self._fill_table_by_prefix(workbook['Report'], vacation_infos, rules, 'report_', self._get_report_row_data_dynamic)
         
         if 'Print' in workbook.sheetnames:
             normalized_data = self._normalize_vacation_data(vacation_infos)
-            self._fill_table_by_prefix(workbook['Print'], normalized_data, rules, 'print_', self._get_print_row_data)
+            self._fill_table_by_prefix(workbook['Print'], normalized_data, rules, 'print_', self._get_print_row_data_dynamic)
             self._apply_borders_to_table(workbook['Print'], len(normalized_data))
 
     def _fill_table_by_prefix(self, worksheet, data_list: List, rules: Dict[str, Dict[str, str]], prefix: str, row_data_func):
@@ -541,6 +545,10 @@ class ExcelHandler:
                     converted_value = self._convert_value_type(value)
                     worksheet[cell_address] = converted_value
 
+    def _get_report_row_data_dynamic(self, vacation_info: VacationInfo, index: int) -> Dict[str, Any]:
+        """Динамически получает данные строки для Report листа используя DataMapper"""
+        return self.data_mapper.map_vacation_info_to_rules(vacation_info, index, 'report_')
+    
     def _get_report_row_data(self, vacation_info: VacationInfo, index: int) -> Dict[str, Any]:
         emp = vacation_info.employee
         
@@ -558,6 +566,10 @@ class ExcelHandler:
             "report_periods_count": len(vacation_info.periods) if vacation_info.periods else "",
         }
 
+    def _get_print_row_data_dynamic(self, data, index: int) -> Dict[str, Any]:
+        """Динамически получает данные строки для Print листа используя DataMapper"""
+        return self.data_mapper.map_period_data_to_rules(data, index, 'print_')
+    
     def _get_print_row_data(self, data, index: int) -> Dict[str, Any]:
         """Получает данные строки для Print листа из нормализованных данных"""
         emp = data.get('employee', {})
@@ -781,7 +793,7 @@ class ExcelHandler:
         if not template_path.exists():
             raise FileNotFoundError(f"Шаблон общего отчета не найден: {template_path}")
         
-        Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+        self.directory_manager.ensure_directory_exists(Path(output_path).parent)
         shutil.copy2(template_path, output_path)
         
         workbook = openpyxl.load_workbook(output_path)
@@ -831,7 +843,7 @@ class ExcelHandler:
         if not template_path.exists():
             raise FileNotFoundError(f"Шаблон общего отчета не найден: {template_path}")
         
-        Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+        self.directory_manager.ensure_directory_exists(Path(output_path).parent)
         shutil.copy2(template_path, output_path)
         
         # Загружаем rules общего отчета
@@ -839,22 +851,69 @@ class ExcelHandler:
         
         workbook = openpyxl.load_workbook(output_path)
         
-        # Заполняем общие данные (value правила)
-        current_time = datetime.now()
-        general_data = {
-            'update_date2': current_time.strftime('%d.%m.%Y %H:%M'),
-            'blocks_count': len(block_data)
-        }
+        # Используем DataMapper для динамического маппинга заголовка
+        general_data = self.data_mapper.map_general_header_data(block_data)
         
         self._apply_rules_to_template(workbook, rules, general_data)
         
         # Заполняем таблицу данных (header правила)
-        self._fill_general_report_table(workbook, block_data, rules)
+        self._fill_general_report_table_dynamic(workbook, block_data, rules)
         
         workbook.save(output_path)
         workbook.close()
         return True
 
+    def _fill_general_report_table_dynamic(self, workbook, block_data: List[Dict], rules: Dict[str, Dict[str, str]]):
+        """Динамически заполняет таблицу общего отчета используя DataMapper"""
+        if 'Report' not in workbook.sheetnames:
+            return
+        
+        worksheet = workbook['Report']
+        header_rules = rules.get('header', {})
+        
+        # Собираем mapping: имя поля -> столбец и строка
+        column_mapping = {}
+        for cell_address, field_name in header_rules.items():
+            try:
+                is_formula, clean_address, sheet_name = self._parse_cell_address(cell_address)
+                if sheet_name is None:
+                    sheet_name = 'Report'
+                
+                if sheet_name == 'Report':
+                    col_match = re.search(r'([A-Z]+)', clean_address)
+                    row_match = re.search(r'(\d+)', clean_address)
+                    if col_match and row_match:
+                        column_mapping[field_name] = (col_match.group(1), int(row_match.group(1)))
+            except Exception as e:
+                self.logger.warning(f"Ошибка парсинга адреса {cell_address}: {e}")
+        
+        if not column_mapping:
+            return
+        
+        # Заполняем данные используя DataMapper
+        for i, data in enumerate(block_data):
+            row = 8 + i  # Начинаем с 8-й строки
+            
+            # Вставляем строку если нужно
+            if i > 0:
+                worksheet.insert_rows(row, 1)
+            
+            # Получаем данные через DataMapper
+            row_data = self.data_mapper.map_block_data_to_rules(data, i, '')
+            
+            # Заполняем каждое поле
+            for field_name, (col, header_row) in column_mapping.items():
+                cell_address = f"{col}{row}"
+                value = row_data.get(field_name, '')
+                
+                # Преобразуем значение к правильному типу
+                converted_value = self._convert_value_type(value)
+                worksheet[cell_address] = converted_value
+        
+        # Применяем границы
+        if block_data:
+            self._apply_borders_to_general_table(worksheet, len(block_data))
+    
     def _fill_general_report_table(self, workbook, block_data: List[Dict], rules: Dict[str, Dict[str, str]]):
         """Заполняет таблицу общего отчета по rules"""
         if 'Report' not in workbook.sheetnames:
