@@ -11,6 +11,8 @@ tests/
 sandbox/
 backLog_aka_toDo.md
 *.md
+*.cursorrules
+temp/
 *.txt
 # C extensions
 *.so
