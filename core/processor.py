@@ -331,49 +331,7 @@ class VacationProcessor:
                 log_msg = f"В отделе '{info['dept_name']}' найдено {info['count']} отчетов по блоку, будет использован отчет '{info['selected_file']}', так как в его названии самая актуальная дата ({info['date_display']})"
                 operation_log.add_entry("INFO", log_msg)
             
-            # 2. РАСКИДЫВАНИЕ create_report.exe ПО ПАПКАМ
-            progress.current_operation = "Раскидывание скриптов по отделам"
-            if progress_callback:
-                progress_callback(progress)
-            
-            # Ищем create_report.exe в папке приложения
-            exe_source_path = None
-            possible_paths = [
-                Path("create_report.exe"),
-                Path("dist/create_report.exe"),
-                Path("build/create_report.exe"),
-                Path("release/create_report.exe")
-            ]
-            
-            for path in possible_paths:
-                if path.exists():
-                    exe_source_path = path
-                    break
-            
-            if not exe_source_path:
-                warning_msg = "Файл create_report.exe не найден для раскидывания по отделам"
-                operation_log.add_entry("WARNING", warning_msg)
-                # operation_log.finish(ProcessingStatus.ERROR) # This line was removed as per the edit hint
-                # return operation_log # This line was removed as per the edit hint
-            
-            # Раскидываем exe по папкам
-            for dept_info in selected_departments:
-                dept_name = dept_info['name']
-                dept_path = Path(dept_info['path'])
-                
-                if dept_path.exists():
-                    clean_dept_name = self._clean_filename_for_exe(dept_name)
-                    target_filename = f"Скрипт для сборки отчета по блоку '{clean_dept_name}'.exe"
-                    target_path = dept_path / target_filename
-                    
-                    try:
-                        if exe_source_path is not None:
-                            shutil.copy2(exe_source_path, target_path)
-                            operation_log.add_entry("INFO", f"Скрипт скопирован в {dept_name}")
-                    except Exception as e:
-                        operation_log.add_entry("ERROR", f"Ошибка копирования скрипта в {dept_name}: {e}")
-            
-            # 3. СБОР ДАННЫХ ИЗ ОТЧЕТОВ
+            # 2. СБОР ДАННЫХ ИЗ ОТЧЕТОВ
             progress.current_operation = "Сбор данных из отчетов по блокам"
             if progress_callback:
                 progress_callback(progress)

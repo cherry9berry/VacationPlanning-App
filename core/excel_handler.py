@@ -255,24 +255,7 @@ class ExcelHandler:
                     
         except Exception as e:
             self.logger.error(f"Ошибка при заполнении {address}: {e}")
-            # Fallback через координаты
-            try:
-                from openpyxl.utils import coordinate_to_tuple
-                if re.match(r'^[A-Z]+[0-9]+$', address):
-                    row, col = coordinate_to_tuple(address)
-                    worksheet = workbook.worksheets[0]
-                    cell = worksheet.cell(row=row, column=col)
-                    cell.value = converted_value
-                    if isinstance(converted_value, (int, float)):
-                        cell.data_type = 'n'
-                        cell.number_format = '0' if isinstance(converted_value, int) else '0.00'
-                    elif isinstance(converted_value, str) and converted_value != '':
-                        cell.data_type = 's'
-                else:
-                    raise e
-            except Exception as e2:
-                self.logger.error(f"Ошибка при заполнении через координаты: {e2}")
-                raise e2
+            raise e
     
     def _is_float(self, value: str) -> bool:
         """Проверяет, является ли строка числом с плавающей точкой"""
@@ -406,23 +389,9 @@ class ExcelHandler:
                         self.logger.warning(f"Ошибка чтения {cell_address} для {field_name}: {e}")
                         employee[field_name] = ""
             
-            # Если нет rules, используем fallback из конфига
+            # Если не удалось прочитать данные сотрудника по rules, прерываем выполнение
             if not employee:
-                file_structure = self.config.employee_file_structure
-                dept_cells = file_structure.get("department_cells", {})
-                employee_cols = file_structure.get("employee_columns", {})
-                data_rows = file_structure.get("employee_data_rows", {"start": 15, "end": 29})
-                
-                # Читаем данные сотрудника из первой строки (15)
-                employee = {
-                    "ФИО работника": str(self._get_cell_value(worksheet, f"{employee_cols.get('full_name', 'C')}{data_rows['start']}") or "").strip(),
-                    "Табельный номер": str(self._get_cell_value(worksheet, f"{employee_cols.get('tab_number', 'B')}{data_rows['start']}") or "").strip(),
-                    "Должность": str(self._get_cell_value(worksheet, f"{employee_cols.get('position', 'D')}{data_rows['start']}") or "").strip(),
-                    "Подразделение 1": str(self._get_cell_value(worksheet, dept_cells.get("department1", "C2")) or "").strip(),
-                    "Подразделение 2": str(self._get_cell_value(worksheet, dept_cells.get("department2", "C3")) or "").strip(),
-                    "Подразделение 3": str(self._get_cell_value(worksheet, dept_cells.get("department3", "C4")) or "").strip(),
-                    "Подразделение 4": str(self._get_cell_value(worksheet, dept_cells.get("department4", "C5")) or "").strip()
-                }
+                raise ValueError(f"Не удалось прочитать данные сотрудника из файла {file_path}. Отсутствуют правила чтения или данные не найдены.")
             
             # Читаем периоды отпусков из всех строк с 15 по 29
             file_structure = self.config.employee_file_structure

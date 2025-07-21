@@ -258,6 +258,41 @@ class EmployeeFileCreator:
             # Очищаем кэш для освобождения памяти
             self.excel_handler.clear_cache()
             
+            # 8. РАСКИДЫВАНИЕ create_report.exe ПО ПАПКАМ
+            progress.current_operation = "Раскидывание скриптов по отделам"
+            self._emit_progress_update(progress, progress_callback)
+            
+            # Ищем create_report.exe в папке приложения
+            exe_source_path = None
+            possible_paths = [
+                Path("create_report.exe"),
+            ]
+            
+            for path in possible_paths:
+                if path.exists():
+                    exe_source_path = path
+                    break
+            
+            if not exe_source_path:
+                warning_msg = "Файл create_report.exe не найден для раскидывания по отделам"
+                operation_log.add_entry("WARNING", warning_msg)
+            else:
+                # Раскидываем exe по папкам
+                for dept_name, dept_employees in employees_by_dept.items():
+                    dept_path = Path(target_directory) / self._clean_filename_for_exe(dept_name)
+                    
+                    if dept_path.exists():
+                        clean_dept_name = self._clean_filename_for_exe(dept_name)
+                        target_filename = f"Скрипт для сборки отчета по блоку '{clean_dept_name}'.exe"
+                        target_path = dept_path / target_filename
+                        
+                        try:
+                            import shutil
+                            shutil.copy2(exe_source_path, target_path)
+                            operation_log.add_entry("INFO", f"Скрипт скопирован в {dept_name}")
+                        except Exception as e:
+                            operation_log.add_entry("ERROR", f"Ошибка копирования скрипта в {dept_name}: {e}")
+            
             operation_log.add_entry("INFO", f"Время выполнения: {duration.total_seconds():.1f} сек")
             
             # Завершаем транзакцию
@@ -352,4 +387,20 @@ class EmployeeFileCreator:
     def _should_stop(self) -> bool:
         """Проверяет, нужно ли остановить операцию"""
         # Пока простая заглушка, можно расширить через события
-        return False 
+        return False
+    
+    def _clean_filename_for_exe(self, filename: str) -> str:
+        """Очищает имя файла для exe от недопустимых символов"""
+        if not filename:
+            return "unnamed"
+        
+        # Заменяем недопустимые символы
+        import re
+        clean_name = re.sub(r'[\\/:*?"<>|]', '_', filename)
+        clean_name = clean_name.strip('. ')
+        
+        # Ограничиваем длину
+        if len(clean_name) > 80:
+            clean_name = clean_name[:80]
+        
+        return clean_name or "unnamed" 

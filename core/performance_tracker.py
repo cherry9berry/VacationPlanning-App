@@ -76,14 +76,7 @@ class PerformanceReport:
             files_per_second = self.successful_files / self.total_duration
             report.append(f"Скорость: {files_per_second:.2f} файлов/сек")
         
-        # Прогноз для разных объемов
-        if self.average_duration_per_file > 0:
-            report.append("")
-            report.append("ПРОГНОЗ ВРЕМЕНИ:")
-            for count in [50, 100, 200, 500]:
-                estimated_time = count * self.average_duration_per_file
-                estimated_str = str(timedelta(seconds=int(estimated_time)))
-                report.append(f"  {count} файлов: ~{estimated_str}")
+
         
         return "\n".join(report)
 

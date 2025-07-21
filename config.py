@@ -21,7 +21,7 @@ class Config:
     # ----------------------
     DEFAULT_CONFIG = {
         # Путь к шаблону файла сотрудника
-        "employee_template": "templates/employee_template v4.0 lightweight.xlsx",
+        "employee_template": "templates/employee_template v4.2.xlsx",
         # Путь к шаблону отчета по блоку
         "block_report_template": "templates/block_report_template v3.xlsx", 
         # Путь к шаблону общего отчета
