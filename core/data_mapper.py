@@ -146,22 +146,18 @@ class DataMapper:
     def map_general_header_data(self, block_data: List[Dict[str, Any]]) -> Dict[str, Any]:
         """
         Маппит данные заголовка общего отчета согласно rules
-        
         Args:
             block_data: Список данных блоков
-            
         Returns:
             Словарь с данными заголовка согласно rules
         """
-        # Вычисляем общую сумму сотрудников во всех блоках
-        employees_sum = sum(block.get('total_employees', 0) for block in block_data)
-        
-        # Вычисляем количество блоков, которые завершили планирование полностью (percentage = 100%)
+        # Корректно считаем сумму сотрудников по ключу 'employees_count'
+        employees_sum = sum(block.get('employees_count', 0) for block in block_data)
+        # Количество блоков, которые завершили планирование полностью (percentage = 100%)
         blocks_sum = 0
         for block in block_data:
             percentage_raw = block.get('percentage', 0)
             if isinstance(percentage_raw, str):
-                # Убираем символ % и конвертируем в число
                 percentage_str = percentage_raw.replace('%', '').strip()
                 try:
                     percentage = float(percentage_str)
@@ -171,11 +167,8 @@ class DataMapper:
                 percentage = float(percentage_raw)
             else:
                 percentage = 0.0
-            
-            # Если процент равен 100, считаем блок завершенным
             if percentage >= 100.0:
                 blocks_sum += 1
-        
         return {
             'update_date2': self._format_datetime(datetime.now()),
             'blocks_count': len(block_data),

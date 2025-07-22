@@ -609,8 +609,8 @@ class ExcelHandler:
         try:
             return worksheet[cell_address].value
         except Exception:
-            return None
-
+                return None
+            
     def read_vacation_info_from_file(self, file_path: str) -> Optional[VacationInfo]:
         """Читает информацию об отпусках из файла сотрудника с новой логикой статусов"""
         try:
@@ -700,13 +700,14 @@ class ExcelHandler:
             return None
 
     def read_block_report_data_by_rules(self, report_path: str) -> Optional[Dict]:
-        """Читает данные из отчета по блоку используя его rules"""
+        """Читает данные из отчета по блоку используя его rules (ПРАВИЛЬНАЯ РЕАЛИЗАЦИЯ ИЗ ГИТХАБА)"""
         try:
             # Загружаем rules отчета по блоку
             block_rules = self._load_filling_rules(report_path)
             
             workbook = openpyxl.load_workbook(report_path, data_only=True, read_only=True)
             if 'Report' not in workbook.sheetnames:
+                workbook.close()
                 return None
             
             worksheet = workbook['Report']
@@ -796,7 +797,7 @@ class ExcelHandler:
         return True
 
     def _fill_general_report_table_with_rules(self, workbook, block_data: List[Dict], rules: Dict[str, Dict[str, str]]):
-        """Заполняет таблицу общего отчета используя header правила, копирует формат, обновляет формулы итогов"""
+        """Универсально заполняет таблицу общего отчета по правилам из rules (header/value)"""
         if 'Report' not in workbook.sheetnames:
             return
         worksheet = workbook['Report']
@@ -804,32 +805,30 @@ class ExcelHandler:
         if not header_rules:
             return
 
-        # Определяем строку заголовков и первую строку данных
+        # Определяем строку заголовков (ищем минимальный row в header)
         header_row = None
-        for cell_address, field_name in header_rules.items():
+        for cell_address in header_rules:
             try:
-                is_formula, clean_address, sheet_name = self._parse_cell_address(cell_address)
-                if clean_address:
-                    import re
-                    row_match = re.search(r'(\d+)', clean_address)
-                    if row_match:
-                        row_num = int(row_match.group(1))
-                        if header_row is None or row_num < header_row:
-                            header_row = row_num
+                is_formula, clean_address, _ = self._parse_cell_address(cell_address)
+                import re
+                row_match = re.search(r'(\d+)', clean_address)
+                if row_match:
+                    row_num = int(row_match.group(1))
+                    if header_row is None or row_num < header_row:
+                        header_row = row_num
             except Exception:
                 continue
         if header_row is None:
-            header_row = 8  # fallback
+            return
         data_start_row = header_row + 1
-        template_row = data_start_row
-        total_cols = 8  # A-H
 
-        # Сохраняем формат шаблонной строки (первая строка данных)
-        template_cells = [worksheet.cell(row=template_row, column=col) for col in range(1, total_cols+1)]
+        # Сохраняем стили шаблонной строки (первая строка данных)
+        total_cols = worksheet.max_column
+        template_cells = [worksheet.cell(row=data_start_row, column=col) for col in range(1, total_cols+1)]
         template_styles = [self._copy_cell_style(cell) for cell in template_cells]
 
-        # Найти строку итогов (первая строка после данных, обычно template_row+1)
-        summary_row = template_row + 1
+        # Найти строку итогов (первая строка после данных)
+        summary_row = data_start_row + 1
         summary_cells = [worksheet.cell(row=summary_row, column=col) for col in range(1, total_cols+1)]
         summary_styles = [self._copy_cell_style(cell) for cell in summary_cells]
         summary_formulas = [cell.value for cell in summary_cells]
@@ -840,47 +839,36 @@ class ExcelHandler:
         worksheet.delete_rows(data_start_row)  # строка итогов
 
         # Вставляем строки данных с копированием формата
-        for i, block_info in enumerate(block_data):
+        for i in range(len(block_data)):
             current_row = data_start_row + i
             worksheet.insert_rows(current_row)
             for col in range(1, total_cols+1):
                 cell = worksheet.cell(row=current_row, column=col)
                 self._apply_cell_style(cell, template_styles[col-1])
 
-        # Заполняем данные по rules
+        # Универсально заполняем значения по header-правилам
         for i, block_info in enumerate(block_data):
             current_row = data_start_row + i
             for cell_address, field_name in header_rules.items():
                 try:
-                    is_formula, clean_address, sheet_name = self._parse_cell_address(cell_address)
+                    is_formula, clean_address, _ = self._parse_cell_address(cell_address)
                     import re
                     col_match = re.search(r'([A-Z]+)', clean_address)
                     if col_match:
                         col_letters = col_match.group(1)
                         col_idx = self._col_letters_to_index(col_letters)
                         cell = worksheet.cell(row=current_row, column=col_idx)
-                        if field_name == 'row_number2':
-                            value = i + 1
-                        elif field_name == 'report_department1':
-                            value = block_info.get('block_name', '')
-                        elif field_name == 'percentage':
-                            # Передаем float (0..1), формат ячейки Excel должен быть процентный
-                            value = block_info.get('percentage', 0) / 100 if block_info.get('percentage', 0) > 1 else block_info.get('percentage', 0)
-                        elif field_name == 'employees_count':
-                            value = int(block_info.get('total_employees', 0))
-                        elif field_name == 'correct_filled':
-                            value = int(block_info.get('completed_employees', 0))
-                        elif field_name == 'incorrect_filled':
-                            value = int(block_info.get('employees_incorrect', 0))
-                        elif field_name == 'not_filled':
-                            value = int(block_info.get('employees_not_filled', 0))
-                        elif field_name == 'update_date':
-                            value = block_info.get('update_date', '')
-                        else:
-                            value = block_info.get(field_name, '')
+                        value = block_info.get(field_name, '')
+                        if 'percent' in field_name:
+                            try:
+                                value = float(value)
+                            except Exception:
+                                value = 0.0
+                        elif isinstance(value, str) and value.isdigit():
+                            value = int(value)
                         cell.value = value
-                except Exception as e:
-                    self.logger.warning(f"Ошибка заполнения {cell_address}: {e}")
+                except Exception:
+                    continue
 
         # Вставляем строку итогов сразу после данных
         summary_row_new = data_start_row + len(block_data)
@@ -888,26 +876,10 @@ class ExcelHandler:
         for col in range(1, total_cols+1):
             cell = worksheet.cell(row=summary_row_new, column=col)
             self._apply_cell_style(cell, summary_styles[col-1])
-
-        # Обновляем формулы в строке итогов
         for col in range(1, total_cols+1):
             cell = worksheet.cell(row=summary_row_new, column=col)
             formula = summary_formulas[col-1]
-            if isinstance(formula, str) and formula.startswith('=SUM('):
-                # Пример: =SUM(C9:C9) -> =SUM(C9:C{summary_row_new-1})
-                import re
-                match = re.match(r'=SUM\(([A-Z]+)(\d+):([A-Z]+)(\d+)\)', formula)
-                if match:
-                    col_letter = match.group(1)
-                    start = data_start_row
-                    end = summary_row_new - 1
-                    cell.value = f'=SUM({col_letter}{start}:{col_letter}{end})'
-                else:
-                    cell.value = formula
-            else:
-                cell.value = formula
-
-        # Применяем границы к таблице данных
+            cell.value = formula
         self._apply_borders_to_general_table(worksheet, len(block_data), data_start_row)
 
     def _copy_cell_style(self, cell):
@@ -963,7 +935,7 @@ class ExcelHandler:
         """Парсит дату из различных форматов"""
         if value is None:
             return None
-            
+        
         # Если это уже объект date или datetime
         if isinstance(value, date):
             return value
@@ -975,7 +947,7 @@ class ExcelHandler:
             value = value.strip()
             if not value:
                 return None
-                
+        
             # Пробуем стандартные форматы
             date_formats = [
                 '%d.%m.%Y',
@@ -990,7 +962,7 @@ class ExcelHandler:
                     return datetime.strptime(value, fmt).date()
                 except ValueError:
                     continue
-                    
+        
         return None
 
     def generate_output_filename(self, employee: Dict[str, str]) -> str:
