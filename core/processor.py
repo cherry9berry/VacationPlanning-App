@@ -6,13 +6,15 @@
 
 import logging
 import time
+import random
+import re
 from pathlib import Path
 from datetime import datetime
 from typing import List, Dict, Callable, Optional, Tuple
 
 from models import (
     Employee, VacationInfo, BlockReport, GeneralReport, 
-    ProcessingProgress, OperationLog, ProcessingStatus, ValidationResult
+    ProcessingProgress, OperationLog, ProcessingStatus, ValidationResult, VacationStatus
 )
 from config import Config
 from core.validator import Validator
@@ -23,7 +25,6 @@ from core.employee_file_creator import EmployeeFileCreator
 from core.directory_manager import DirectoryManager
 
 import shutil
-import re
 
 
 class VacationProcessor:
@@ -243,14 +244,7 @@ class VacationProcessor:
     ) -> OperationLog:
         """
         Создает общий отчет по выбранным подразделениям
-        
-        Args:
-            selected_departments: список выбранных подразделений в формате [{'name': str, 'path': str, 'files_count': int}]
-            base_directory: базовая папка для сохранения общего отчета
-            progress_callback: функция для обновления прогресса
-            
-        Returns:
-            OperationLog: лог операции
+        ПРАВИЛЬНАЯ ЛОГИКА: читает готовые отчеты по блокам и агрегирует данные
         """
         operation_log = OperationLog("Создание общего отчета")
         operation_log.add_entry("INFO", "Начало создания общего отчета")
@@ -261,7 +255,7 @@ class VacationProcessor:
                 current_operation="Подготовка к созданию общего отчета",
                 start_time=start_time,
                 total_blocks=len(selected_departments),
-                total_files=len(selected_departments)  # Каждый отдел = один файл для анализа
+                total_files=len(selected_departments)  # Каждый отдел = один отчет для анализа
             )
             
             if progress_callback:
@@ -337,7 +331,6 @@ class VacationProcessor:
                 progress_callback(progress)
             
             block_data = []
-            import random
             
             for i, dept_info in enumerate(selected_departments):
                 dept_name = dept_info['name']
@@ -379,7 +372,7 @@ class VacationProcessor:
             if progress_callback:
                 progress_callback(progress)
             
-            # 4. СОЗДАНИЕ ОБЩЕГО ОТЧЕТА
+            # 3. СОЗДАНИЕ ОБЩЕГО ОТЧЕТА
             progress.current_operation = "Создание файла общего отчета"
             if progress_callback:
                 progress_callback(progress)
@@ -388,7 +381,8 @@ class VacationProcessor:
             report_filename = f"ОБЩИЙ_ОТЧЕТ_{timestamp}.xlsx"
             report_path = Path(base_directory) / report_filename
             
-            success = self.excel_handler.create_general_report_from_blocks_with_rules(
+            # Используем метод для создания общего отчета из блоков
+            success = self.excel_handler.create_general_report_from_blocks(
                 block_data, str(report_path)
             )
             
@@ -401,7 +395,11 @@ class VacationProcessor:
                 if progress_callback:
                     progress_callback(progress)
                 
+                total_employees_all = sum(b['total_employees'] for b in block_data)
+                total_correct_all = sum(b['completed_employees'] for b in block_data)
+                
                 operation_log.add_entry("INFO", f"Общий отчет создан: {report_path}")
+                operation_log.add_entry("INFO", f"Блоков: {len(block_data)}, Сотрудников: {total_employees_all}, Заполнили корректно: {total_correct_all}")
                 operation_log.add_entry("INFO", f"Время выполнения: {duration.total_seconds():.1f} сек")
                 operation_log.finish(ProcessingStatus.SUCCESS)
                 
@@ -461,3 +459,11 @@ class VacationProcessor:
         except Exception as e:
             self.logger.error(f"Ошибка поиска отчета для {dept_name}: {e}")
             return None
+
+    def _is_report_file(self, filename: str) -> bool:
+        """Проверяет, является ли файл отчетом"""
+        report_indicators = [
+            "Отчет", "отчет", "ОБЩИЙ", "общий", "GENERAL", "summary_", "!"
+        ]
+        filename_lower = filename.lower()
+        return any(indicator.lower() in filename_lower for indicator in report_indicators)

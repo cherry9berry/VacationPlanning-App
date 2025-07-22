@@ -266,43 +266,57 @@ def read_vacation_info(file_path: str, employee_rules: Dict = None) -> Optional[
             except Exception:
                 employee[field_name] = ""
         
-        # Читаем периоды отпусков из строк 15-29
-        periods = []
-        for row in range(15, 30):
-            start_date_value = get_cell_value(worksheet, f"C{row}")
-            end_date_value = get_cell_value(worksheet, f"D{row}")
-            
-            if not start_date_value or not end_date_value:
-                continue
-            
-            try:
-                start_date = parse_date(start_date_value)
-                end_date = parse_date(end_date_value)
-                
-                if start_date and end_date:
-                    days = (end_date - start_date).days + 1
-                    periods.append(VacationPeriod(start_date, end_date, days))
-            except Exception:
-                continue
-        
         # Читаем статус из B12
         status_value = get_cell_value(worksheet, "B12")
         status_text = str(status_value).strip() if status_value else ""
         
-        vacation_info = VacationInfo(employee=employee, periods=periods)
-        
-        # Определяем статус
-        if status_text == VALIDATION_STATUSES["not_filled"]:
-            vacation_info.status = "Форма не заполнена"
-        elif status_text == VALIDATION_STATUSES["filled_correct"]:
-            vacation_info.status = "Форма заполнена корректно"
+        # ОБНОВЛЕННАЯ ЛОГИКА: Сохраняем оригинальные статусы, но периоды читаем только для "корректно"
+        if status_text == VALIDATION_STATUSES["filled_correct"]:
+            vacation_status = "Форма заполнена корректно"
         elif status_text == VALIDATION_STATUSES["filled_incorrect"]:
-            vacation_info.status = "Форма заполнена некорректно"
+            vacation_status = "Форма заполнена некорректно"
+        elif status_text == VALIDATION_STATUSES["not_filled"]:
+            vacation_status = "Форма не заполнена"
         else:
-            if not periods:
-                vacation_info.status = "Форма не заполнена"
+            # Неизвестные статусы обрабатываем по содержимому
+            if "некорректно" in status_text.lower() or "ошибка" in status_text.lower():
+                vacation_status = "Форма заполнена некорректно"
+            elif "не заполнена" in status_text.lower() or not status_text:
+                vacation_status = "Форма не заполнена"
             else:
-                vacation_info.status = "Форма заполнена некорректно"
+                vacation_status = "Форма заполнена некорректно"
+        
+        # Читаем периоды отпусков только если статус "Форма заполнена корректно"
+        periods = []
+        if vacation_status == "Форма заполнена корректно":
+            for row in range(15, 30):
+                start_date_value = get_cell_value(worksheet, f"C{row}")
+                end_date_value = get_cell_value(worksheet, f"D{row}")
+                
+                if not start_date_value or not end_date_value:
+                    continue
+                
+                try:
+                    start_date = parse_date(start_date_value)
+                    end_date = parse_date(end_date_value)
+                    
+                    if start_date and end_date:
+                        # Читаем продолжительность из столбца E для текущей строки
+                        days_value = get_cell_value(worksheet, f"E{row}")
+                        if days_value and isinstance(days_value, (int, float)) and int(days_value) > 0:
+                            days = int(days_value)
+                            periods.append(VacationPeriod(start_date, end_date, days))
+                        else:
+                            # Если значение не найдено в столбце E, равно 0 или отрицательное, пропускаем этот период
+                            continue
+                except Exception:
+                    continue
+        else:
+            # Если статус не "Форма заполнена корректно", периоды не читаем
+            print(f"Статус формы '{status_text}' не 'Форма заполнена корректно', периоды не читаются")
+        
+        vacation_info = VacationInfo(employee=employee, periods=periods)
+        vacation_info.status = vacation_status
         
         if status_text and vacation_info.status != "Форма заполнена корректно":
             vacation_info.validation_errors = [status_text]
@@ -390,11 +404,24 @@ def fill_table_by_prefix(worksheet, data_list: List, rules: Dict, prefix: str, r
                 
                 converted_value = convert_value_type(value)
                 worksheet[cell_address] = converted_value
+    
+    # Применяем границы к таблице
+    if data_list:
+        apply_borders_to_table(worksheet, len(data_list), column_mapping)
 
 def get_row_data(item, index: int, prefix: str) -> Dict[str, Any]:
     """Получает данные строки для заполнения"""
     if hasattr(item, 'employee'):  # VacationInfo
         employee = item.employee
+        
+        # Если статус "Форма не заполнена", устанавливаем total_days и periods_count в 0
+        if item.status == "Форма не заполнена":
+            total_days = 0
+            periods_count = 0
+        else:
+            total_days = item.total_days
+            periods_count = item.periods_count
+        
         return {
             f'{prefix}employee_name': employee.get('ФИО работника', ''),
             f'{prefix}tab_number': employee.get('Табельный номер', ''),
@@ -404,8 +431,8 @@ def get_row_data(item, index: int, prefix: str) -> Dict[str, Any]:
             f'{prefix}department3': employee.get('Подразделение 3', ''),
             f'{prefix}department4': employee.get('Подразделение 4', ''),
             f'{prefix}status': item.status,
-            f'{prefix}total_days': item.total_days,
-            f'{prefix}periods_count': item.periods_count,
+            f'{prefix}total_days': total_days,
+            f'{prefix}periods_count': periods_count,
             f'{prefix}row_number': index + 1
         }
     else:  # Normalized data для Print
@@ -426,6 +453,34 @@ def get_row_data(item, index: int, prefix: str) -> Dict[str, Any]:
             f'{prefix}notes': '',
             f'{prefix}row_number': index + 1
         }
+
+def apply_borders_to_table(worksheet, data_count: int, column_mapping: Dict[str, tuple]):
+    """Применяет границы к таблице"""
+    thin_border = Border(left=Side(style='thin'), right=Side(style='thin'), 
+                       top=Side(style='thin'), bottom=Side(style='thin'))
+    
+    # Находим минимальную и максимальную строку и столбец
+    min_row = float('inf')
+    max_row = 0
+    min_col = float('inf')
+    max_col = 0
+    
+    for col_str, header_row in column_mapping.values():
+        # Конвертируем буквенное обозначение столбца в номер
+        col_num = 0
+        for char in col_str:
+            col_num = col_num * 26 + (ord(char.upper()) - ord('A') + 1)
+        
+        min_col = min(min_col, col_num)
+        max_col = max(max_col, col_num)
+        min_row = min(min_row, header_row + 1)  # +1 потому что данные начинаются со следующей строки
+        max_row = max(max_row, header_row + 1 + data_count - 1)  # последняя строка с данными
+    
+    # Применяем границы ко всем ячейкам в диапазоне
+    for row in range(min_row, max_row + 1):
+        for col in range(min_col, max_col + 1):
+            cell = worksheet.cell(row=row, column=col)
+            cell.border = thin_border
 
 def normalize_vacation_data(vacation_infos: List[VacationInfo]) -> List[Dict]:
     """Нормализует данные - каждый период = строка"""

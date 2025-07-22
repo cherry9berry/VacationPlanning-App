@@ -14,6 +14,7 @@ backLog_aka_toDo.md
 *.cursorrules
 temp/
 *.txt
+*.exe
 # C extensions
 *.so
 *.txt

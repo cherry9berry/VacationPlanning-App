@@ -160,7 +160,8 @@ class ExcelHandler:
             return ''
         
         if isinstance(value, (int, float)):
-            return float(value)
+            # Сохраняем целые числа как int, float как float
+            return value
         
         str_value = str(value).strip()
         
@@ -173,9 +174,13 @@ class ExcelHandler:
             clean_value = str_value.replace(' ', '').replace('\xa0', '')
             # Заменяем запятую на точку
             clean_value = clean_value.replace(',', '.')
-            # Пытаемся преобразовать в float
+            # Пытаемся преобразовать в число
             float_val = float(clean_value)
-            return float_val
+            # Если это целое число, возвращаем int
+            if float_val.is_integer():
+                return int(float_val)
+            else:
+                return float_val
         except (ValueError, TypeError):
             pass
         
@@ -342,136 +347,6 @@ class ExcelHandler:
         
         return rules
 
-    def read_vacation_info_from_file(self, file_path: str) -> Optional[VacationInfo]:
-        """Читает информацию об отпусках из файла сотрудника"""
-        try:
-            # Загружаем файл с вычислением формул
-            workbook = openpyxl.load_workbook(file_path, data_only=False, read_only=False)
-            
-            # Принудительно пересчитываем формулы
-            for worksheet in workbook.worksheets:
-                for row in worksheet.iter_rows():
-                    for cell in row:
-                        if cell.data_type == 'f':
-                            try:
-                                _ = cell.value
-                            except Exception:
-                                pass
-            
-            # Получаем rules из шаблона сотрудника для чтения данных
-            template_path = Path(self.config.employee_template)
-            if template_path.exists():
-                rules = self._get_cached_rules(str(template_path))
-                value_rules = rules.get('value', {})
-            else:
-                value_rules = {}
-            
-            # Читаем данные сотрудника по rules
-            worksheet = workbook.worksheets[0]
-            employee = {}
-            
-            # Используем value rules для чтения данных
-            if value_rules:
-                for cell_address, field_name in value_rules.items():
-                    try:
-                        is_formula, clean_address, sheet_name = self._parse_cell_address(cell_address)
-                        if sheet_name and sheet_name in workbook.sheetnames:
-                            ws = workbook[sheet_name]
-                        else:
-                            ws = worksheet
-                        
-                        value = self._get_cell_value(ws, clean_address)
-                        if value is not None:
-                            employee[field_name] = str(value).strip()
-                        else:
-                            employee[field_name] = ""
-                    except Exception as e:
-                        self.logger.warning(f"Ошибка чтения {cell_address} для {field_name}: {e}")
-                        employee[field_name] = ""
-            
-            # Если не удалось прочитать данные сотрудника по rules, прерываем выполнение
-            if not employee:
-                raise ValueError(f"Не удалось прочитать данные сотрудника из файла {file_path}. Отсутствуют правила чтения или данные не найдены.")
-            
-            # Читаем периоды отпусков из всех строк с 15 по 29
-            file_structure = self.config.employee_file_structure
-            vacation_columns = file_structure.get("vacation_columns", {})
-            data_rows = file_structure.get("employee_data_rows", {"start": 15, "end": 29})
-            
-            periods = []
-            for row in range(data_rows["start"], data_rows["end"] + 1):
-                start_date_value = self._get_cell_value(worksheet, f"{vacation_columns.get('start_date', 'C')}{row}")
-                end_date_value = self._get_cell_value(worksheet, f"{vacation_columns.get('end_date', 'D')}{row}")
-                
-                # Если начало или конец периода не указаны - пропускаем эту строку
-                if not start_date_value or not end_date_value:
-                    continue
-                
-                try:
-                    start_date = self._parse_date(start_date_value)
-                    end_date = self._parse_date(end_date_value)
-                    
-                    # Если не удалось распарсить даты - пропускаем
-                    if not start_date or not end_date:
-                        continue
-                    
-                    # Суммируем продолжительность из столбца E с 15 по 29 строку
-                    total_days = 0
-                    for days_row in range(data_rows["start"], data_rows["end"] + 1):
-                        days_value = self._get_cell_value(worksheet, f"E{days_row}")
-                        if days_value and isinstance(days_value, (int, float)):
-                            total_days += int(days_value)
-                    
-                    # Если сумма не найдена, вычисляем по датам
-                    if total_days == 0:
-                        total_days = (end_date - start_date).days + 1
-                    
-                    periods.append(VacationPeriod(start_date=start_date, end_date=end_date, days=total_days))
-                    
-                except Exception as e:
-                    self.logger.warning(f"Ошибка обработки периода в строке {row}: {e}")
-                    continue
-            
-            # Читаем статус из ячейки, указанной в конфиге
-            file_structure = self.config.employee_file_structure
-            status_cell = file_structure.get("status_cell", "B12")
-            
-            # Для статуса нужно загрузить файл с data_only=True чтобы получить вычисленное значение
-            status_wb = openpyxl.load_workbook(file_path, data_only=True)
-            status_ws = status_wb.worksheets[0]
-            status_value = self._get_cell_value(status_ws, status_cell)
-            status_wb.close()
-            
-            status_text = str(status_value).strip() if status_value else ""
-            
-            # Определяем статус
-            statuses = self.config.validation_statuses
-            if status_text == statuses["not_filled"]:
-                vacation_status = VacationStatus.NOT_FILLED
-            elif status_text == statuses["filled_correct"]:
-                vacation_status = VacationStatus.FILLED_CORRECT
-            elif status_text == statuses["filled_incorrect"]:
-                vacation_status = VacationStatus.FILLED_INCORRECT
-            else:
-                if not periods:
-                    vacation_status = VacationStatus.NOT_FILLED
-                elif "некорректно" in status_text.lower() or "ошибка" in status_text.lower():
-                    vacation_status = VacationStatus.FILLED_INCORRECT
-                else:
-                    vacation_status = VacationStatus.FILLED_INCORRECT
-            
-            vacation_info = VacationInfo(employee=employee, periods=periods, status=vacation_status)
-            
-            if status_text and vacation_status != VacationStatus.FILLED_CORRECT:
-                vacation_info.validation_errors = [status_text]
-            
-            workbook.close()
-            return vacation_info
-            
-        except Exception as e:
-            self.logger.error(f"Ошибка чтения файла {file_path}: {e}")
-            return None
-
     def create_block_report(self, block_name: str, vacation_infos: List[VacationInfo], output_path: str) -> bool:
         """Создает отчет по блоку с использованием rules"""
         template_path = Path(self.config.block_report_template)
@@ -505,6 +380,7 @@ class ExcelHandler:
         """Заполняет таблицы сотрудников на Report и Print листах"""
         if 'Report' in workbook.sheetnames:
             self._fill_table_by_prefix(workbook['Report'], vacation_infos, rules, 'report_', self._get_report_row_data_dynamic)
+            self._apply_borders_to_report_table(workbook['Report'], len(vacation_infos), rules)
         
         if 'Print' in workbook.sheetnames:
             normalized_data = self._normalize_vacation_data(vacation_infos)
@@ -615,6 +491,57 @@ class ExcelHandler:
                     })
         return normalized_data
 
+    def _apply_borders_to_report_table(self, worksheet, data_count: int, rules: Dict[str, Dict[str, str]]):
+        """Применяет границы к таблице Report листа"""
+        thin_border = Border(left=Side(style='thin'), right=Side(style='thin'), 
+                           top=Side(style='thin'), bottom=Side(style='thin'))
+        
+        # Получаем mapping столбцов из rules
+        header_rules = rules.get('header', {})
+        column_mapping = {}
+        
+        for cell_address, field_name in header_rules.items():
+            if field_name.startswith('report_'):
+                if cell_address.startswith('=') and '!' in cell_address:
+                    sheet_and_cell = cell_address[1:]
+                    if '!' in sheet_and_cell:
+                        sheet_part, cell_part = sheet_and_cell.split('!', 1)
+                        col_match = re.search(r'([A-Z]+)', cell_part)
+                        row_match = re.search(r'(\d+)', cell_part)
+                        if col_match and row_match:
+                            column_mapping[field_name] = (col_match.group(1), int(row_match.group(1)))
+                else:
+                    col_match = re.search(r'([A-Z]+)', cell_address)
+                    row_match = re.search(r'(\d+)', cell_address)
+                    if col_match and row_match:
+                        column_mapping[field_name] = (col_match.group(1), int(row_match.group(1)))
+        
+        if not column_mapping:
+            return
+        
+        # Находим диапазон столбцов и строк
+        min_row = float('inf')
+        max_row = 0
+        min_col = float('inf')
+        max_col = 0
+        
+        for col_str, header_row in column_mapping.values():
+            # Конвертируем буквенное обозначение столбца в номер
+            col_num = 0
+            for char in col_str:
+                col_num = col_num * 26 + (ord(char.upper()) - ord('A') + 1)
+            
+            min_col = min(min_col, col_num)
+            max_col = max(max_col, col_num)
+            min_row = min(min_row, header_row + 1)  # +1 потому что данные начинаются со следующей строки
+            max_row = max(max_row, header_row + 1 + data_count - 1)  # последняя строка с данными
+        
+        # Применяем границы ко всем ячейкам в диапазоне
+        for row in range(min_row, max_row + 1):
+            for col in range(min_col, max_col + 1):
+                cell = worksheet.cell(row=row, column=col)
+                cell.border = thin_border
+
     def _apply_borders_to_table(self, worksheet, data_count: int):
         """Применяет границы к таблице Print листа"""
         thin_border = Border(left=Side(style='thin'), right=Side(style='thin'), 
@@ -677,56 +604,99 @@ class ExcelHandler:
         col_offset = sum(days_in_months[:target_date.month - 1]) + target_date.day - 1
         return start_col + col_offset
 
-    def read_block_report_data(self, report_path: str) -> Optional[Dict]:
-        """Читает данные из отчета по блоку"""
+    def _get_cell_value(self, worksheet, cell_address: str):
+        """Безопасно получает значение ячейки"""
         try:
-            workbook = openpyxl.load_workbook(report_path, data_only=True, read_only=True)
-            if 'Report' not in workbook.sheetnames:
-                return None
+            return worksheet[cell_address].value
+        except Exception:
+            return None
+
+    def read_vacation_info_from_file(self, file_path: str) -> Optional[VacationInfo]:
+        """Читает информацию об отпусках из файла сотрудника с новой логикой статусов"""
+        try:
+            # Загружаем rules из файла
+            employee_rules = self._load_filling_rules(file_path)
             
-            worksheet = workbook['Report']
+            workbook = openpyxl.load_workbook(file_path, data_only=True)
+            worksheet = workbook.worksheets[0]
             
-            report_structure = self.config.report_structure
-            header_cells = report_structure.get("report_header_cells", {})
+            # Читаем данные сотрудника по rules
+            employee = {}
+            value_rules = employee_rules.get('value', {})
             
-            block_name = str(self._get_cell_value(worksheet, header_cells.get("block_name", "A3")) or "").strip()
-            update_date_raw = str(self._get_cell_value(worksheet, header_cells.get("update_date", "A4")) or "").strip()
-            total_employees_raw = str(self._get_cell_value(worksheet, header_cells.get("total_employees", "A5")) or "").strip()
-            completed_raw = str(self._get_cell_value(worksheet, header_cells.get("completed", "A6")) or "").strip()
-            
-            update_date = update_date_raw.replace("Дата обновления:", "").strip() if "Дата обновления:" in update_date_raw else ""
-            
-            total_employees = 0
-            if "Количество сотрудников:" in total_employees_raw:
+            for cell_address, field_name in value_rules.items():
                 try:
-                    total_employees = int(total_employees_raw.split(":")[1].strip())
-                except (ValueError, IndexError):
-                    pass
+                    is_formula, clean_address, sheet_name = self._parse_cell_address(cell_address)
+                    if sheet_name and sheet_name in workbook.sheetnames:
+                        ws = workbook[sheet_name]
+                    else:
+                        ws = worksheet
+                    
+                    value = self._get_cell_value(ws, clean_address)
+                    employee[field_name] = str(value).strip() if value is not None else ""
+                except Exception:
+                    employee[field_name] = ""
             
-            completed_employees = 0
-            percentage = 0
-            if "Закончили планирование:" in completed_raw:
-                try:
-                    parts = completed_raw.split(":")[1].strip().split("(")
-                    completed_employees = int(parts[0].strip())
-                    if len(parts) > 1:
-                        percentage = int(parts[1].replace("%)", "").strip())
-                except (ValueError, IndexError):
-                    pass
+            # Читаем статус из B12
+            status_value = self._get_cell_value(worksheet, "B12")
+            status_text = str(status_value).strip() if status_value else ""
+            
+            # ОБНОВЛЕННАЯ ЛОГИКА: Сохраняем оригинальные статусы, но периоды читаем только для "корректно"
+            validation_statuses = self.config.validation_statuses
+            if status_text == validation_statuses["filled_correct"]:
+                vacation_status = VacationStatus.FILLED_CORRECT
+            elif status_text == validation_statuses["filled_incorrect"]:
+                vacation_status = VacationStatus.FILLED_INCORRECT  
+            elif status_text == validation_statuses["not_filled"]:
+                vacation_status = VacationStatus.NOT_FILLED
+            else:
+                # Неизвестные статусы считаем как "некорректно заполнена"
+                if "некорректно" in status_text.lower() or "ошибка" in status_text.lower():
+                    vacation_status = VacationStatus.FILLED_INCORRECT
+                elif "не заполнена" in status_text.lower() or not status_text:
+                    vacation_status = VacationStatus.NOT_FILLED
+                else:
+                    vacation_status = VacationStatus.FILLED_INCORRECT
+            
+            # Читаем периоды отпусков только если статус "Форма заполнена корректно"
+            periods = []
+            if vacation_status == VacationStatus.FILLED_CORRECT:
+                for row in range(15, 30):
+                    start_date_value = self._get_cell_value(worksheet, f"C{row}")
+                    end_date_value = self._get_cell_value(worksheet, f"D{row}")
+                    
+                    if not start_date_value or not end_date_value:
+                        continue
+                    
+                    try:
+                        start_date = self._parse_date(start_date_value)
+                        end_date = self._parse_date(end_date_value)
+                        
+                        if start_date and end_date:
+                            # Читаем продолжительность из столбца E для текущей строки
+                            days_value = self._get_cell_value(worksheet, f"E{row}")
+                            if days_value and isinstance(days_value, (int, float)) and int(days_value) > 0:
+                                days = int(days_value)
+                                periods.append(VacationPeriod(start_date, end_date, days))
+                            else:
+                                # Если значение не найдено в столбце E, равно 0 или отрицательное, пропускаем этот период
+                                continue
+                    except Exception:
+                        continue
+            else:
+                # Если статус не "Форма заполнена корректно", периоды не читаем
+                self.logger.debug(f"Статус формы '{status_text}' не 'Форма заполнена корректно', периоды не читаются")
+            
+            vacation_info = VacationInfo(employee=employee, periods=periods, status=vacation_status)
+            
+            if status_text and vacation_info.status != VacationStatus.FILLED_CORRECT:
+                vacation_info.validation_errors = [status_text]
             
             workbook.close()
-            
-            return {
-                'block_name': block_name,
-                'total_employees': total_employees,
-                'completed_employees': completed_employees,
-                'remaining_employees': total_employees - completed_employees,
-                'percentage': percentage,
-                'update_date': update_date
-            }
+            return vacation_info
             
         except Exception as e:
-            self.logger.error(f"Ошибка чтения отчета {report_path}: {e}")
+            self.logger.error(f"Ошибка чтения файла {file_path}: {e}")
             return None
 
     def read_block_report_data_by_rules(self, report_path: str) -> Optional[Dict]:
@@ -799,57 +769,7 @@ class ExcelHandler:
             return None
 
     def create_general_report_from_blocks(self, block_data: List[Dict], output_path: str) -> bool:
-        """Создает общий отчет"""
-        template_path = Path(self.config.general_report_template)
-        if not template_path.exists():
-            raise FileNotFoundError(f"Шаблон общего отчета не найден: {template_path}")
-        
-        self.directory_manager.ensure_directory_exists(Path(output_path).parent)
-        shutil.copy2(template_path, output_path)
-        
-        workbook = openpyxl.load_workbook(output_path)
-        worksheet = workbook.active
-        
-        if worksheet is None:
-            return False
-        
-        # Заполняем данные
-        for i, data in enumerate(block_data):
-            row = 6 + i
-            if i > 0:
-                worksheet.insert_rows(row, 1)
-            
-            worksheet[f"A{row}"] = i + 1
-            worksheet[f"B{row}"] = data['block_name']
-            worksheet[f"C{row}"] = f"{data['percentage']}%"
-            worksheet[f"D{row}"] = data['total_employees']
-            worksheet[f"E{row}"] = data['completed_employees']
-            worksheet[f"F{row}"] = data['remaining_employees']
-            worksheet[f"G{row}"] = data['update_date']
-        
-        # Границы
-        thin_border = Border(left=Side(style='thin'), right=Side(style='thin'), 
-                           top=Side(style='thin'), bottom=Side(style='thin'))
-        for i in range(len(block_data)):
-            row = 6 + i
-            for col in range(1, 8):
-                worksheet.cell(row=row, column=col).border = thin_border
-        
-        # Формулы итого
-        if block_data:
-            total_row = 6 + len(block_data) + 1
-            data_end_row = 6 + len(block_data) - 1
-            worksheet[f"C{total_row}"] = f'=ROUND(E{total_row}/D{total_row}*100,0)&"%"'
-            worksheet[f"D{total_row}"] = f'=SUM(D6:D{data_end_row})'
-            worksheet[f"E{total_row}"] = f'=SUM(E6:E{data_end_row})'
-            worksheet[f"F{total_row}"] = f'=SUM(F6:F{data_end_row})'
-        
-        workbook.save(output_path)
-        workbook.close()
-        return True
-
-    def create_general_report_from_blocks_with_rules(self, block_data: List[Dict], output_path: str) -> bool:
-        """Создает общий отчет используя rules"""
+        """Создает общий отчет используя rules из шаблона"""
         template_path = Path(self.config.general_report_template)
         if not template_path.exists():
             raise FileNotFoundError(f"Шаблон общего отчета не найден: {template_path}")
@@ -865,177 +785,154 @@ class ExcelHandler:
         # Используем DataMapper для динамического маппинга заголовка
         general_data = self.data_mapper.map_general_header_data(block_data)
         
+        # Применяем value правила (заголовок отчета)
         self._apply_rules_to_template(workbook, rules, general_data)
         
-        # Заполняем таблицу данных (header правила)
-        self._fill_general_report_table_dynamic(workbook, block_data, rules)
+        # Заполняем таблицу данных используя header правила
+        self._fill_general_report_table_with_rules(workbook, block_data, rules)
         
         workbook.save(output_path)
         workbook.close()
         return True
 
-    def _fill_general_report_table_dynamic(self, workbook, block_data: List[Dict], rules: Dict[str, Dict[str, str]]):
-        """Динамически заполняет таблицу общего отчета используя DataMapper"""
+    def _fill_general_report_table_with_rules(self, workbook, block_data: List[Dict], rules: Dict[str, Dict[str, str]]):
+        """Заполняет таблицу общего отчета используя header правила"""
         if 'Report' not in workbook.sheetnames:
             return
-        
+            
         worksheet = workbook['Report']
         header_rules = rules.get('header', {})
         
-        # Собираем mapping: имя поля -> столбец и строка
-        column_mapping = {}
+        if not header_rules:
+            return
+            
+        # Определяем строку заголовков (ищем первое правило и берем его строку)
+        header_row = None
         for cell_address, field_name in header_rules.items():
             try:
                 is_formula, clean_address, sheet_name = self._parse_cell_address(cell_address)
-                if sheet_name is None:
-                    sheet_name = 'Report'
-                
-                if sheet_name == 'Report':
-                    col_match = re.search(r'([A-Z]+)', clean_address)
+                if clean_address:
+                    # Извлекаем номер строки из адреса (например, из "B8" получаем 8)
+                    import re
                     row_match = re.search(r'(\d+)', clean_address)
-                    if col_match and row_match:
-                        column_mapping[field_name] = (col_match.group(1), int(row_match.group(1)))
-            except Exception as e:
-                self.logger.warning(f"Ошибка парсинга адреса {cell_address}: {e}")
-        
-        if not column_mapping:
-            return
-        
-        # Заполняем данные используя DataMapper
-        for i, data in enumerate(block_data):
-            row = 9 + i  # Начинаем с 9-й строки (после заголовков)
-            
-            # Вставляем строку если нужно
-            if i > 0:
-                worksheet.insert_rows(row, 1)
-            
-            # Получаем данные через DataMapper
-            row_data = self.data_mapper.map_block_data_to_rules(data, i, '')
-            
-            # Заполняем каждое поле
-            for field_name, (col, header_row) in column_mapping.items():
-                cell_address = f"{col}{row}"
-                value = row_data.get(field_name, '')
-                
-                # Преобразуем значение к правильному типу
-                converted_value = self._convert_value_type(value)
-                worksheet[cell_address] = converted_value
-        
-        # Применяем границы
-        if block_data:
-            self._apply_borders_to_general_table(worksheet, len(block_data))
-    
-    def _fill_general_report_table(self, workbook, block_data: List[Dict], rules: Dict[str, Dict[str, str]]):
-        """Заполняет таблицу общего отчета по rules"""
-        if 'Report' not in workbook.sheetnames:
-            return
-        
-        worksheet = workbook['Report']
-        header_rules = rules.get('header', {})
-        
-        # Собираем mapping: имя поля -> столбец и строка
-        column_mapping = {}
-        for cell_address, field_name in header_rules.items():
-            try:
-                is_formula, clean_address, sheet_name = self._parse_cell_address(cell_address)
-                if sheet_name is None:
-                    sheet_name = 'Report'
-                
-                if sheet_name == 'Report':
-                    col_match = re.search(r'([A-Z]+)', clean_address)
-                    row_match = re.search(r'(\d+)', clean_address)
-                    if col_match and row_match:
-                        column_mapping[field_name] = (col_match.group(1), int(row_match.group(1)))
-            except Exception as e:
-                self.logger.warning(f"Ошибка парсинга адреса {cell_address}: {e}")
-        
-        if not column_mapping:
-            return
-        
-        # Заполняем данные
-        for i, data in enumerate(block_data):
-            row = 9 + i  # Начинаем с 9-й строки (после заголовков)
-            
-            # Вставляем строку если нужно
-            if i > 0:
-                worksheet.insert_rows(row, 1)
-            
-            # Заполняем каждое поле
-            for field_name, (col, header_row) in column_mapping.items():
-                cell_address = f"{col}{row}"
-                
-                if field_name == 'row_number2':
-                    value = i + 1
-                elif field_name == 'report_department1':
-                    value = data.get('block_name', '')
-                elif field_name == 'percentage':
-                    value = f"{data.get('percentage', 0)}%"
-                elif field_name == 'employees_count':
-                    value = data.get('total_employees', 0)
-                elif field_name == 'correct_filled':
-                    value = data.get('completed_employees', 0)
-                elif field_name == 'incorrect_filled':
-                    value = data.get('employees_incorrect', 0)
-                elif field_name == 'not_filled':
-                    value = data.get('employees_not_filled', 0)
-                elif field_name == 'update_date':
-                    value = data.get('update_date', '')
-                else:
-                    value = ''
-                
-                # Преобразуем значение к правильному типу
-                converted_value = self._convert_value_type(value)
-                worksheet[cell_address] = converted_value
-        
-        # Применяем границы
-        if block_data:
-            self._apply_borders_to_general_table(worksheet, len(block_data))
-
-    def _apply_borders_to_general_table(self, worksheet, data_count: int):
-        """Применяет границы к таблице общего отчета"""
-        thin_border = Border(left=Side(style='thin'), right=Side(style='thin'), 
-                           top=Side(style='thin'), bottom=Side(style='thin'))
-        
-        start_row = 9
-        end_row = start_row + data_count - 1
-        
-        # Определяем количество столбцов по правилам
-        max_col = 8  # Фиксированное количество столбцов для общего отчета
-        
-        # Применяем границы
-        for row in range(start_row, end_row + 1):
-            for col in range(1, max_col + 1):
-                worksheet.cell(row=row, column=col).border = thin_border
-
-    def _get_cell_value(self, worksheet, cell_address: str):
-        """Безопасно получает значение ячейки"""
-        try:
-            return worksheet[cell_address].value
-        except Exception:
-            return None
-
-    def _parse_date(self, date_value) -> Optional[date]:
-        """Парсит дату из различных форматов"""
-        if not date_value:
-            return None
-        
-        if isinstance(date_value, date):
-            return date_value
-        if isinstance(date_value, datetime):
-            return date_value.date()
-        
-        date_str = str(date_value).strip()
-        if not date_str:
-            return None
-        
-        formats = ["%d.%m.%Y", "%d.%m.%y", "%Y-%m-%d", "%d/%m/%Y", "%d/%m/%y"]
-        
-        for fmt in formats:
-            try:
-                return datetime.strptime(date_str, fmt).date()
-            except ValueError:
+                    if row_match:
+                        row_num = int(row_match.group(1))
+                        if header_row is None or row_num < header_row:
+                            header_row = row_num
+            except Exception:
                 continue
         
+        if header_row is None:
+            header_row = 8  # fallback
+            
+        # ВАЖНО: данные идут НА СТРОКУ НИЖЕ заголовков
+        data_start_row = header_row + 1
+        
+        # Заполняем данные для каждого блока
+        for i, block_info in enumerate(block_data):
+            current_row = data_start_row + i
+            
+            # Если не первая строка, вставляем новую строку
+            if i > 0:
+                worksheet.insert_rows(current_row, 1)
+            
+            # Заполняем данные по rules
+            for cell_address, field_name in header_rules.items():
+                try:
+                    is_formula, clean_address, sheet_name = self._parse_cell_address(cell_address)
+                    
+                    # Определяем значение по полю
+                    if field_name == 'row_number2':
+                        value = i + 1
+                    elif field_name == 'report_department1':
+                        value = block_info.get('block_name', '')
+                    elif field_name == 'percentage':
+                        value = f"{block_info.get('percentage', 0)}%"
+                    elif field_name == 'employees_count':
+                        value = block_info.get('total_employees', 0)
+                    elif field_name == 'correct_filled':
+                        value = block_info.get('completed_employees', 0)
+                    elif field_name == 'incorrect_filled':
+                        value = block_info.get('employees_incorrect', 0)
+                    elif field_name == 'not_filled':
+                        value = block_info.get('employees_not_filled', 0)
+                    elif field_name == 'update_date':
+                        value = block_info.get('update_date', '')
+                    else:
+                        value = block_info.get(field_name, '')
+                    
+                    # Вычисляем адрес ячейки для ДАННЫХ (не заголовка)
+                    import re
+                    col_match = re.search(r'([A-Z]+)', clean_address)
+                    if col_match:
+                        col_letters = col_match.group(1)
+                        new_address = f"{col_letters}{current_row}"
+                        worksheet[new_address] = value
+                        
+                except Exception as e:
+                    self.logger.warning(f"Ошибка заполнения {cell_address}: {e}")
+        
+        # Применяем границы к таблице данных (не заголовкам)
+        self._apply_borders_to_general_table(worksheet, len(block_data), data_start_row)
+
+    def _apply_borders_to_general_table(self, worksheet, data_count: int, data_start_row: int):
+        """Применяет границы к таблице данных общего отчета"""
+        thin_border = Border(
+            left=Side(style='thin'), 
+            right=Side(style='thin'), 
+            top=Side(style='thin'), 
+            bottom=Side(style='thin')
+        )
+        
+        # Применяем границы к области ДАННЫХ (не заголовков)
+        for row in range(data_start_row, data_start_row + data_count):
+            for col in range(1, 9):  # A-H столбцы
+                worksheet.cell(row=row, column=col).border = thin_border
+
+    def _get_all_vacation_periods_from_blocks(self, block_data: List[Dict]) -> List[VacationPeriod]:
+        """Собирает все периоды отпусков из всех блоков"""
+        all_periods = []
+        for block_info in block_data:
+            for period_data in block_info.get('periods', []):
+                all_periods.append(VacationPeriod(
+                    period_data['start_date'],
+                    period_data['end_date'],
+                    period_data['days']
+                ))
+        return all_periods
+
+    def _parse_date(self, value) -> Optional[date]:
+        """Парсит дату из различных форматов"""
+        if value is None:
+            return None
+            
+        # Если это уже объект date или datetime
+        if isinstance(value, date):
+            return value
+        if hasattr(value, 'date'):
+            return value.date()
+            
+        # Если это строка, пробуем различные форматы
+        if isinstance(value, str):
+            value = value.strip()
+            if not value:
+                return None
+                
+            # Пробуем стандартные форматы
+            date_formats = [
+                '%d.%m.%Y',
+                '%d/%m/%Y', 
+                '%Y-%m-%d',
+                '%d.%m.%y',
+                '%d/%m/%y'
+            ]
+            
+            for fmt in date_formats:
+                try:
+                    return datetime.strptime(value, fmt).date()
+                except ValueError:
+                    continue
+                    
         return None
 
     def generate_output_filename(self, employee: Dict[str, str]) -> str:

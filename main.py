@@ -25,8 +25,10 @@ if getattr(sys, 'frozen', False):
     application_path = os.path.dirname(sys.executable)
     os.chdir(application_path)
 else:
-    # Режим разработки
+    # Режим разработки - ВСЕГДА устанавливаем рабочую папку в папку скрипта
     application_path = os.path.dirname(os.path.abspath(__file__))
+    os.chdir(application_path)
+    print(f"Установлена рабочая папка: {application_path}")
 
 # Добавляем текущую папку в sys.path для импорта модулей
 if __name__ == "__main__":

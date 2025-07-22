@@ -21,11 +21,11 @@ class Config:
     # ----------------------
     DEFAULT_CONFIG = {
         # Путь к шаблону файла сотрудника
-        "employee_template": "templates/employee_template v4.2.xlsx",
+        "employee_template": "templates/employee_template v4.3.xlsx",
         # Путь к шаблону отчета по блоку
         "block_report_template": "templates/block_report_template v3.xlsx", 
         # Путь к шаблону общего отчета
-        "general_report_template": "templates/global_report_template v3.xlsx",
+        "general_report_template": "templates/global_report_template v3.1.xlsx",
         # Номер строки с заголовками в Excel-файле сотрудников
         "header_row": 5,
         # Оценочное время обработки одного файла (секунды)
@@ -94,14 +94,22 @@ class Config:
     def load_or_create_default(self) -> None:
         """Загружает конфигурацию из файла или создает файл по умолчанию"""
         try:
+            # Проверяем, что мы в правильной директории
+            current_dir = Path.cwd()
+            self.logger.info(f"Текущая рабочая директория: {current_dir}")
+            self.logger.info(f"Путь к файлу конфигурации: {self.config_file.absolute()}")
+            
             if self.config_file.exists():
                 self.load()
                 self.logger.info(f"Конфигурация загружена из {self.config_file}")
             else:
+                # Пытаемся создать директорию если её нет
+                self.config_file.parent.mkdir(parents=True, exist_ok=True)
                 self.save()
                 self.logger.info(f"Создан файл конфигурации по умолчанию: {self.config_file}")
         except Exception as e:
             self.logger.error(f"Ошибка работы с конфигурацией: {e}")
+            self.logger.error(f"Используем конфигурацию по умолчанию")
             self.data = self.DEFAULT_CONFIG.copy()
     
     def load(self) -> None:
