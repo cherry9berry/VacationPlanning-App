@@ -796,23 +796,20 @@ class ExcelHandler:
         return True
 
     def _fill_general_report_table_with_rules(self, workbook, block_data: List[Dict], rules: Dict[str, Dict[str, str]]):
-        """Заполняет таблицу общего отчета используя header правила"""
+        """Заполняет таблицу общего отчета используя header правила, копирует формат, обновляет формулы итогов"""
         if 'Report' not in workbook.sheetnames:
             return
-            
         worksheet = workbook['Report']
         header_rules = rules.get('header', {})
-        
         if not header_rules:
             return
-            
-        # Определяем строку заголовков (ищем первое правило и берем его строку)
+
+        # Определяем строку заголовков и первую строку данных
         header_row = None
         for cell_address, field_name in header_rules.items():
             try:
                 is_formula, clean_address, sheet_name = self._parse_cell_address(cell_address)
                 if clean_address:
-                    # Извлекаем номер строки из адреса (например, из "B8" получаем 8)
                     import re
                     row_match = re.search(r'(\d+)', clean_address)
                     if row_match:
@@ -821,59 +818,120 @@ class ExcelHandler:
                             header_row = row_num
             except Exception:
                 continue
-        
         if header_row is None:
             header_row = 8  # fallback
-            
-        # ВАЖНО: данные идут НА СТРОКУ НИЖЕ заголовков
         data_start_row = header_row + 1
-        
-        # Заполняем данные для каждого блока
+        template_row = data_start_row
+        total_cols = 8  # A-H
+
+        # Сохраняем формат шаблонной строки (первая строка данных)
+        template_cells = [worksheet.cell(row=template_row, column=col) for col in range(1, total_cols+1)]
+        template_styles = [self._copy_cell_style(cell) for cell in template_cells]
+
+        # Найти строку итогов (первая строка после данных, обычно template_row+1)
+        summary_row = template_row + 1
+        summary_cells = [worksheet.cell(row=summary_row, column=col) for col in range(1, total_cols+1)]
+        summary_styles = [self._copy_cell_style(cell) for cell in summary_cells]
+        summary_formulas = [cell.value for cell in summary_cells]
+
+        # Удаляем старые строки данных и итогов (если есть)
+        for _ in range(len(block_data)):
+            worksheet.delete_rows(data_start_row)
+        worksheet.delete_rows(data_start_row)  # строка итогов
+
+        # Вставляем строки данных с копированием формата
         for i, block_info in enumerate(block_data):
             current_row = data_start_row + i
-            
-            # Если не первая строка, вставляем новую строку
-            if i > 0:
-                worksheet.insert_rows(current_row, 1)
-            
-            # Заполняем данные по rules
+            worksheet.insert_rows(current_row)
+            for col in range(1, total_cols+1):
+                cell = worksheet.cell(row=current_row, column=col)
+                self._apply_cell_style(cell, template_styles[col-1])
+
+        # Заполняем данные по rules
+        for i, block_info in enumerate(block_data):
+            current_row = data_start_row + i
             for cell_address, field_name in header_rules.items():
                 try:
                     is_formula, clean_address, sheet_name = self._parse_cell_address(cell_address)
-                    
-                    # Определяем значение по полю
-                    if field_name == 'row_number2':
-                        value = i + 1
-                    elif field_name == 'report_department1':
-                        value = block_info.get('block_name', '')
-                    elif field_name == 'percentage':
-                        value = f"{block_info.get('percentage', 0)}%"
-                    elif field_name == 'employees_count':
-                        value = block_info.get('total_employees', 0)
-                    elif field_name == 'correct_filled':
-                        value = block_info.get('completed_employees', 0)
-                    elif field_name == 'incorrect_filled':
-                        value = block_info.get('employees_incorrect', 0)
-                    elif field_name == 'not_filled':
-                        value = block_info.get('employees_not_filled', 0)
-                    elif field_name == 'update_date':
-                        value = block_info.get('update_date', '')
-                    else:
-                        value = block_info.get(field_name, '')
-                    
-                    # Вычисляем адрес ячейки для ДАННЫХ (не заголовка)
                     import re
                     col_match = re.search(r'([A-Z]+)', clean_address)
                     if col_match:
                         col_letters = col_match.group(1)
-                        new_address = f"{col_letters}{current_row}"
-                        worksheet[new_address] = value
-                        
+                        col_idx = self._col_letters_to_index(col_letters)
+                        cell = worksheet.cell(row=current_row, column=col_idx)
+                        if field_name == 'row_number2':
+                            value = i + 1
+                        elif field_name == 'report_department1':
+                            value = block_info.get('block_name', '')
+                        elif field_name == 'percentage':
+                            # Передаем float (0..1), формат ячейки Excel должен быть процентный
+                            value = block_info.get('percentage', 0) / 100 if block_info.get('percentage', 0) > 1 else block_info.get('percentage', 0)
+                        elif field_name == 'employees_count':
+                            value = int(block_info.get('total_employees', 0))
+                        elif field_name == 'correct_filled':
+                            value = int(block_info.get('completed_employees', 0))
+                        elif field_name == 'incorrect_filled':
+                            value = int(block_info.get('employees_incorrect', 0))
+                        elif field_name == 'not_filled':
+                            value = int(block_info.get('employees_not_filled', 0))
+                        elif field_name == 'update_date':
+                            value = block_info.get('update_date', '')
+                        else:
+                            value = block_info.get(field_name, '')
+                        cell.value = value
                 except Exception as e:
                     self.logger.warning(f"Ошибка заполнения {cell_address}: {e}")
-        
-        # Применяем границы к таблице данных (не заголовкам)
+
+        # Вставляем строку итогов сразу после данных
+        summary_row_new = data_start_row + len(block_data)
+        worksheet.insert_rows(summary_row_new)
+        for col in range(1, total_cols+1):
+            cell = worksheet.cell(row=summary_row_new, column=col)
+            self._apply_cell_style(cell, summary_styles[col-1])
+
+        # Обновляем формулы в строке итогов
+        for col in range(1, total_cols+1):
+            cell = worksheet.cell(row=summary_row_new, column=col)
+            formula = summary_formulas[col-1]
+            if isinstance(formula, str) and formula.startswith('=SUM('):
+                # Пример: =SUM(C9:C9) -> =SUM(C9:C{summary_row_new-1})
+                import re
+                match = re.match(r'=SUM\(([A-Z]+)(\d+):([A-Z]+)(\d+)\)', formula)
+                if match:
+                    col_letter = match.group(1)
+                    start = data_start_row
+                    end = summary_row_new - 1
+                    cell.value = f'=SUM({col_letter}{start}:{col_letter}{end})'
+                else:
+                    cell.value = formula
+            else:
+                cell.value = formula
+
+        # Применяем границы к таблице данных
         self._apply_borders_to_general_table(worksheet, len(block_data), data_start_row)
+
+    def _copy_cell_style(self, cell):
+        """Копирует стиль, формат, границы, заливку, выравнивание, font"""
+        from copy import copy
+        return {
+            'font': copy(cell.font),
+            'fill': copy(cell.fill),
+            'border': copy(cell.border),
+            'alignment': copy(cell.alignment),
+            'number_format': cell.number_format,
+        }
+
+    def _apply_cell_style(self, cell, style_dict):
+        cell.font = style_dict['font']
+        cell.fill = style_dict['fill']
+        cell.border = style_dict['border']
+        cell.alignment = style_dict['alignment']
+        cell.number_format = style_dict['number_format']
+
+    def _col_letters_to_index(self, letters):
+        # 'A'->1, 'B'->2, ..., 'AA'->27
+        from openpyxl.utils import column_index_from_string
+        return column_index_from_string(letters)
 
     def _apply_borders_to_general_table(self, worksheet, data_count: int, data_start_row: int):
         """Применяет границы к таблице данных общего отчета"""
