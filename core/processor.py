@@ -253,45 +253,77 @@ class VacationProcessor:
                 current_operation="Подготовка к созданию общего отчета",
                 start_time=start_time,
                 total_blocks=len(selected_departments),
-                total_files=len(selected_departments)
+                processed_blocks=0,
+                total_files=len(selected_departments), # total_files в данном контексте = total_blocks
+                processed_files=0
             )
             if progress_callback:
                 progress_callback(progress)
-            # 1. Проверка наличия отчетов по блокам
+            # 1. Сбор данных из отчетов по блокам
             missing_reports = []
             block_data = []
-            all_totals = []
-            for dept_info in selected_departments:
+            
+            # Прогресс-бар для общего отчета будет обновляться по processed_blocks
+            # А files_progress_bar в GUI будет эмулировать работу внутри каждого блока.
+            
+            for i, dept_info in enumerate(selected_departments):
                 dept_name = dept_info['name']
                 dept_path = Path(dept_info['path'])
-                print(f"DEBUG: Ищу отчет для отдела: {dept_name}, путь: {dept_path}")
+
+                progress.current_operation = f"Сбор данных из отчета: {dept_name}"
+                progress.current_block = dept_name
+                progress.processed_blocks = i # Обновляем обработанные блоки перед чтением
+                progress.processed_files = i # для files_progress_bar также
+                if progress_callback:
+                    progress_callback(progress)
+
                 if not dept_path.exists():
-                    print(f"DEBUG: Папка не существует: {dept_path}")
-                    missing_reports.append(dept_name)
-                    continue
+                    error_msg = f"Папка подразделения не существует: {dept_path}. Отчет не может быть создан."
+                    operation_log.add_entry("ERROR", error_msg)
+                    operation_log.finish(ProcessingStatus.ERROR)
+                    self.logger.error(error_msg)
+                    return operation_log
+                
                 block_report_path = self._find_latest_block_report(str(dept_path), dept_name)
-                print(f"DEBUG: Найден файл отчета: {block_report_path}")
                 if not block_report_path:
-                    print(f"DEBUG: Не найден отчет для отдела: {dept_name}")
-                    missing_reports.append(dept_name)
-                    continue
+                    error_msg = f"Не найден отчет по блоку для отдела: {dept_name}. Отчет не может быть создан."
+                    operation_log.add_entry("ERROR", error_msg)
+                    operation_log.finish(ProcessingStatus.ERROR)
+                    self.logger.error(error_msg)
+                    return operation_log
+                
                 block_info_raw = self.excel_handler.read_block_report_data_by_rules(block_report_path)
-                print(f"DEBUG: Данные из отчета {block_report_path}: {block_info_raw}")
                 if not block_info_raw:
-                    print(f"DEBUG: Не удалось прочитать отчет для отдела: {dept_name}")
-                    missing_reports.append(dept_name)
-                    continue
-                all_totals.append(int(block_info_raw.get('total_employees', 0)))
+                    error_msg = f"Не удалось прочитать отчет по блоку для отдела: {dept_name}. Отчет не может быть создан."
+                    operation_log.add_entry("ERROR", error_msg)
+                    operation_log.finish(ProcessingStatus.ERROR)
+                    self.logger.error(error_msg)
+                    return operation_log
+                
                 block_data.append((dept_name, block_info_raw))
+                operation_log.add_entry("INFO", f"Данные собраны из отчета для '{dept_name}'")
+            
+            # После цикла, обновляем progress.processed_blocks на общее количество успешно обработанных
+            progress.processed_blocks = len(block_data)
+            progress.processed_files = len(block_data) # для files_progress_bar также
+            progress.current_operation = "Все данные блоков собраны"
+            if progress_callback:
+                progress_callback(progress)
+
             if missing_reports:
                 missing_deps_str = ", ".join(missing_reports)
-                error_msg = f"Не найдены валидные блочные отчеты для подразделений: {missing_deps_str}"
-                print(f"DEBUG: {error_msg}")
+                warning_msg = f"Некоторые блочные отчеты не найдены или невалидны: {missing_deps_str}. Отчет будет создан по доступным данным."
+                operation_log.add_entry("WARNING", warning_msg)
+                self.logger.warning(warning_msg)
+            
+            if not block_data:
+                error_msg = "Не удалось собрать данные ни из одного блочного отчета. Общий отчет не будет создан."
                 operation_log.add_entry("ERROR", error_msg)
                 operation_log.finish(ProcessingStatus.ERROR)
                 return operation_log
+
             total_employees_all = sum(int(b[1].get('total_employees', 0)) for b in block_data)
-            print(f"DEBUG: total_employees_all = {total_employees_all}")
+            
             # Формируем финальный список для общего отчета
             final_block_data = []
             for i, (dept_name, block_info_raw) in enumerate(block_data):
@@ -299,7 +331,7 @@ class VacationProcessor:
                 correct = int(block_info_raw.get('completed_employees', 0))
                 incorrect = int(block_info_raw.get('employees_incorrect', 0))
                 not_filled = int(block_info_raw.get('employees_not_filled', 0))
-                print(f"DEBUG: Формирую строку для блока {dept_name}: total={total}, correct={correct}, incorrect={incorrect}, not_filled={not_filled}")
+                
                 block_info = {
                     'row_number2': i + 1,
                     'report_department1': dept_name,
@@ -313,14 +345,19 @@ class VacationProcessor:
                     'not_filled': not_filled,
                     'update_date': block_info_raw.get('update_date', ''),
                 }
-                print(f"DEBUG: block_info для {dept_name}: {block_info}")
                 final_block_data.append(block_info)
-            print(f"DEBUG: Финальные данные для общего отчета: {final_block_data}")
+            
             # 2. Создание общего отчета
+            progress.current_operation = "Создание файла общего отчета"
+            # Обновляем processed_blocks на общее количество блоков, чтобы верхний прогресс-бар был на 100% перед созданием файла
+            progress.processed_blocks = len(selected_departments) # total_blocks изначально
+            if progress_callback:
+                progress_callback(progress)
+
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             report_filename = f"ОБЩИЙ_ОТЧЕТ_{timestamp}.xlsx"
             report_path = Path(base_directory) / report_filename
-            print(f"DEBUG: Путь итогового отчета: {report_path}")
+            
             success = self.excel_handler.create_general_report_from_blocks(
                 final_block_data, str(report_path)
             )
@@ -335,13 +372,11 @@ class VacationProcessor:
                 operation_log.finish(ProcessingStatus.SUCCESS)
             else:
                 error_msg = "Ошибка создания общего отчета"
-                print(f"DEBUG: {error_msg}")
                 operation_log.add_entry("ERROR", error_msg)
                 operation_log.finish(ProcessingStatus.ERROR)
             return operation_log
         except Exception as e:
             error_msg = f"Критическая ошибка: {e}"
-            print(f"DEBUG: {error_msg}")
             operation_log.add_entry("ERROR", error_msg)
             self.logger.error(error_msg, exc_info=True)
             operation_log.finish(ProcessingStatus.ERROR)

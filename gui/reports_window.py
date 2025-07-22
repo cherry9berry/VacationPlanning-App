@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Dict, List, Optional
 from datetime import datetime
 import time
+import random
 
 from config import Config
 from core.processor import VacationProcessor
@@ -39,8 +40,16 @@ class ReportTab:
         # НОВЫЕ ПЕРЕМЕННЫЕ для отслеживания повторных выборов
         self.path_reselected = False
         
-        # Инициализация таймингов для блоков
-        self._block_timings = {}
+        # Инициализация таймингов для блоков (для вкладки reports)
+        self._block_timings = {} 
+        
+        # Инициализация состояния эмуляции для общего отчета (для вкладки general)
+        self._general_emulation_state = {
+            'last_operation': '',
+            'animation_start_time': 0.0,
+            'animation_duration': 0.0,
+            'animation_id': None
+        }
         
         # Подписка на события
         self._setup_event_listeners()
@@ -647,20 +656,15 @@ class ReportTab:
             except tk.TclError:
                 return
             
-            # Общий процент
+            elapsed = (datetime.now() - progress.start_time).total_seconds() if progress.start_time else 0
+            
             if self.tab_type == "departments":
                 if progress.total_files > 0:
                     overall_percent = (progress.processed_files / progress.total_files) * 100
                     self.overall_progress_label.config(text=f"Общий прогресс: {overall_percent:.1f}%")
-            else:
-                if progress.total_blocks > 0:
-                    overall_percent = (progress.processed_blocks / progress.total_blocks) * 100
-                    self.overall_progress_label.config(text=f"Общий прогресс: {overall_percent:.1f}%")
-            
-            # Время
-            elapsed = (datetime.now() - progress.start_time).total_seconds() if progress.start_time else 0
-            
-            if self.tab_type == "departments":
+                else:
+                    self.overall_progress_label.config(text=f"Общий прогресс: 0.0%")
+
                 if progress.processed_files > 0 and progress.total_files > 0:
                     speed = progress.processed_files / elapsed if elapsed > 0 else 0
                     remaining_files = progress.total_files - progress.processed_files
@@ -668,19 +672,9 @@ class ReportTab:
                     self.time_label.config(text=f"Прошло: {elapsed:.0f} сек, Осталось: {remaining_time:.0f} сек")
                 else:
                     self.time_label.config(text=f"Прошло: {elapsed:.0f} сек")
-            else:
-                if progress.processed_blocks > 0 and progress.total_blocks > 0:
-                    speed = progress.processed_blocks / elapsed if elapsed > 0 else 0
-                    remaining_blocks = progress.total_blocks - progress.processed_blocks
-                    remaining_time = remaining_blocks / speed if speed > 0 else 0
-                    self.time_label.config(text=f"Прошло: {elapsed:.0f} сек, Осталось: {remaining_time:.0f} сек")
-                else:
-                    self.time_label.config(text=f"Прошло: {elapsed:.0f} сек")
-            
-            # ИСПРАВЛЕНИЕ: Верхний прогресс-бар (отделы) - возвращаем правильную логику
-            if progress.total_blocks > 0:
-                # Для отчетов по блокам - показываем текущий обрабатываемый отдел
-                if self.tab_type == "departments":
+                
+                # Верхний прогресс-бар (отделы)
+                if progress.total_blocks > 0:
                     dept_percent = (progress.processed_blocks / progress.total_blocks) * 100
                     current_dept_display = progress.processed_blocks + 1 if progress.processed_blocks < progress.total_blocks else progress.total_blocks
                     self.dept_progress_bar['value'] = dept_percent
@@ -688,16 +682,10 @@ class ReportTab:
                         text=f"Отдел {current_dept_display}/{progress.total_blocks}: {progress.current_block or 'Готовится...'}"
                     )
                 else:
-                    # Для общего отчета - показываем завершенные отделы
-                    dept_percent = (progress.processed_blocks / progress.total_blocks) * 100
-                    self.dept_progress_bar['value'] = dept_percent
-                    self.dept_detail_label.config(
-                        text=f"Отдел {progress.processed_blocks}/{progress.total_blocks}: {progress.current_block or 'Готовится...'}"
-                    )
-            
-            # ИСПРАВЛЕННЫЙ НИЖНИЙ ПРОГРЕСС-БАР
-            if self.tab_type == "departments":
-                # ДЛЯ ОТЧЕТОВ ПО ПОДРАЗДЕЛЕНИЯМ - реальные файлы в текущем отделе
+                    self.dept_progress_bar['value'] = 0
+                    self.dept_detail_label.config(text="Нет отделов для обработки")
+
+                # Нижний прогресс-бар (файлы в текущем отделе)
                 if hasattr(self, 'selected_departments') and self.selected_departments:
                     current_dept_index = progress.processed_blocks
                     
@@ -706,13 +694,11 @@ class ReportTab:
                         files_in_dept = current_dept['files_count']
                         
                         if files_in_dept > 0:
-                            # ИСПРАВЛЕНИЕ: Правильный расчет файлов в текущем отделе
                             files_before_current = sum(
                                 self.selected_departments[i]['files_count'] 
                                 for i in range(current_dept_index)
                             )
                             
-                            # Файлы обработанные в текущем отделе
                             files_in_current = max(0, progress.processed_files - files_before_current)
                             files_in_current = min(files_in_current, files_in_dept)
                             
@@ -730,55 +716,83 @@ class ReportTab:
                 else:
                     self.files_progress_bar['value'] = 0
                     self.files_detail_label.config(text="Подготовка...")
-            else:
-                # ДЛЯ ОБЩЕГО ОТЧЕТА - простая эмуляция на случайное время 1.5-3 сек на блок
-                if hasattr(self, 'selected_departments') and self.selected_departments:
-                    current_block_index = progress.processed_blocks
+            else: # General Report Tab
+                # Общий процент и время
+                if progress.total_blocks > 0:
+                    overall_percent = (progress.processed_blocks / progress.total_blocks) * 100
+                    self.overall_progress_label.config(text=f"Общий прогресс: {overall_percent:.1f}%")
                     
-                    # ИСПРАВЛЕНИЕ: Инициализируем переменные только один раз для всего процесса
-                    if not hasattr(self, '_block_timings'):
-                        self._block_timings = {}
-                    
-                    # ДОПОЛНИТЕЛЬНАЯ ЗАЩИТА: Если current_block_index выходит за пределы, создаем недостающие записи
-                    import random
-                    if current_block_index >= len(self._block_timings):
-                        for i in range(len(self._block_timings), current_block_index + 1):
-                            self._block_timings[i] = {
-                                'duration': random.uniform(1.5, 3.0),
-                                'start_time': None
-                            }
-                    
-                    if current_block_index < len(self.selected_departments) and current_block_index in self._block_timings:
-                        dept_name = self.selected_departments[current_block_index]['name']
-                        
-                        # Устанавливаем время начала для текущего блока если еще не установлено
-                        if self._block_timings[current_block_index]['start_time'] is None:
-                            self._block_timings[current_block_index]['start_time'] = time.time()
-                        
-                        block_start_time = self._block_timings[current_block_index]['start_time']
-                        block_duration = self._block_timings[current_block_index]['duration']
-                        time_in_block = time.time() - block_start_time
-                        
-                        # Прогресс в текущем блоке (от 0 до 100%)
-                        block_progress = min(100, (time_in_block / block_duration) * 100)
-                        
-                        self.files_progress_bar['value'] = block_progress
-                        self.files_detail_label.config(text=f"Обработка: {dept_name} ({block_progress:.0f}%)")
-                    else:
-                        # Все блоки завершены
-                        self.files_progress_bar['value'] = 100
-                        self.files_detail_label.config(text="Завершение...")
+                    dept_percent = (progress.processed_blocks / progress.total_blocks) * 100
+                    self.dept_progress_bar['value'] = dept_percent
+                    self.dept_detail_label.config(
+                        text=f"Обработано отделов: {progress.processed_blocks}/{progress.total_blocks}"
+                    )
                 else:
-                    self.files_progress_bar['value'] = 0
-                    self.files_detail_label.config(text="Подготовка...")
+                    self.overall_progress_label.config(text=f"Общий прогресс: 0.0%")
+                    self.dept_progress_bar['value'] = 0
+                    self.dept_detail_label.config(text="Нет отделов для обработки")
+
+                elapsed = (datetime.now() - progress.start_time).total_seconds() if progress.start_time else 0
+                if progress.processed_blocks > 0 and progress.total_blocks > 0:
+                    speed = progress.processed_blocks / elapsed if elapsed > 0 else 0
+                    remaining_blocks = progress.total_blocks - progress.processed_blocks
+                    remaining_time = remaining_blocks / speed if speed > 0 else 0
+                    self.time_label.config(text=f"Прошло: {elapsed:.0f} сек, Осталось: {remaining_time:.0f} сек")
+                else:
+                    self.time_label.config(text=f"Прошло: {elapsed:.0f} сек")
+                
+                # Нижний прогресс-бар (эмуляция):
+                current_active_operation_text = progress.current_operation
+
+                if current_active_operation_text != self._general_emulation_state['last_operation']:
+                    # Новая операция, отменяем предыдущую анимацию, если есть
+                    if self._general_emulation_state['animation_id']:
+                        self.frame.after_cancel(self._general_emulation_state['animation_id'])
+                    
+                    # Сбрасываем состояние и запускаем новую анимацию
+                    self._general_emulation_state['animation_id'] = None # Убедимся, что None для запуска новой анимации
+                    self._general_emulation_state['last_operation'] = current_active_operation_text
+                    self._general_emulation_state['animation_start_time'] = time.time()
+                    self._general_emulation_state['animation_duration'] = random.uniform(0.3, 0.7)
+                    
+                    # Запускаем цикл анимации
+                    self._general_emulation_state['animation_id'] = self.frame.after(50, self._animate_general_emulation)
+                
+                # Если весь отчет создан, завершаем анимацию и устанавливаем 100%
+                if progress.current_operation == "Создание файла общего отчета" and progress.processed_blocks == progress.total_blocks:
+                    if self._general_emulation_state['animation_id']:
+                        self.frame.after_cancel(self._general_emulation_state['animation_id'])
+                    self._general_emulation_state['animation_id'] = None
+                    self.files_progress_bar['value'] = 100
+                    self.files_detail_label.config(text=f"Обработка: {progress.current_operation} (100%) - Завершено")
         
         # ИСПРАВЛЕНИЕ: Проверяем что фрейм еще существует перед обновлением
         try:
             if self.frame.winfo_exists():
                 self.frame.after(0, update_ui)
         except tk.TclError:
-            # Окно уже закрыто, игнорируем
             pass
+
+    def _animate_general_emulation(self):
+        """Обновляет значение нижнего прогресс-бара для общего отчета, создавая эффект эмуляции."""
+        if not self.frame.winfo_exists():
+            return
+
+        state = self._general_emulation_state
+        if state['animation_id'] is None: # Анимация была отменена или завершена
+            return
+
+        elapsed_time = time.time() - state['animation_start_time']
+        progress_val = (elapsed_time / state['animation_duration']) * 100
+
+        if progress_val >= 99.9: # Почти 100%
+            self.files_progress_bar['value'] = 100
+            self.files_detail_label.config(text=f"Обработка: {state['last_operation']} (100%)")
+            state['animation_id'] = None # Отмечаем как завершенную
+        else:
+            self.files_progress_bar['value'] = min(99, progress_val) # Ограничиваем до 99%, чтобы 100% ставилось явно
+            self.files_detail_label.config(text=f"Обработка: {state['last_operation']} ({progress_val:.0f}%)")
+            state['animation_id'] = self.frame.after(50, self._animate_general_emulation) # Планируем следующий кадр
 
     def show_progress_view(self):
         """Показать прогресс"""

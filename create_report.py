@@ -133,7 +133,7 @@ def convert_value_type(value: Any) -> Any:
         return ''
     
     if isinstance(value, (int, float)):
-        return float(value)
+        return value
     
     str_value = str(value).strip()
     if not str_value:
@@ -141,7 +141,11 @@ def convert_value_type(value: Any) -> Any:
     
     try:
         clean_value = str_value.replace(' ', '').replace('\xa0', '').replace(',', '.')
-        return float(clean_value)
+        float_val = float(clean_value)
+        if float_val.is_integer():
+            return int(float_val)
+        else:
+            return float_val
     except (ValueError, TypeError):
         return str_value
 
@@ -160,6 +164,7 @@ def fill_cell(workbook, sheet_name: str, address: str, value: Any):
             cell.value = converted_value
             if isinstance(converted_value, (int, float)):
                 cell.data_type = 'n'
+                cell.number_format = '0' if isinstance(converted_value, int) else '0.00'
             elif isinstance(converted_value, str) and converted_value != '':
                 cell.data_type = 's'
         elif ':' in address:
@@ -167,9 +172,19 @@ def fill_cell(workbook, sheet_name: str, address: str, value: Any):
             if re.match(r'^[A-Z]+[0-9]+$', start_cell):
                 cell = worksheet[start_cell]
                 cell.value = converted_value
+                if isinstance(converted_value, (int, float)):
+                    cell.data_type = 'n'
+                    cell.number_format = '0' if isinstance(converted_value, int) else '0.00'
+                elif isinstance(converted_value, str) and converted_value != '':
+                    cell.data_type = 's'
         else:
             cell = worksheet[address]
             cell.value = converted_value
+            if isinstance(converted_value, (int, float)):
+                cell.data_type = 'n'
+                cell.number_format = '0' if isinstance(converted_value, int) else '0.00'
+            elif isinstance(converted_value, str) and converted_value != '':
+                cell.data_type = 's'
             
     except Exception as e:
         print(f"ПРЕДУПРЕЖДЕНИЕ: Ошибка при заполнении {address}: {e}")
@@ -202,6 +217,12 @@ def scan_employee_files(directory: str) -> List[str]:
         if (file_path.is_file() and 
             file_path.suffix.lower() == '.xlsx' and 
             not file_path.name.startswith('~$') and 
+            not file_path.name.startswith('!') and   # Системные файлы
+            not file_path.name.startswith('Отчет') and  # Отчеты по блоку
+            not file_path.name.startswith('отчет') and  # Отчеты по блоку (с маленькой буквы)
+            not 'отчет' in file_path.name.lower() and  # Любые отчеты
+            not file_path.name.startswith('ОБЩИЙ_ОТЧЕТ') and  # Общие отчеты
+            not file_path.name.startswith('общий_отчет') and  # Общие отчеты (с маленькой буквы)
             is_employee_file(file_path.name)):
             employee_files.append(str(file_path))
     
@@ -240,7 +261,10 @@ def get_cell_value(worksheet, cell_address: str):
         return None
 
 def read_vacation_info(file_path: str, employee_rules: Dict = None) -> Optional[VacationInfo]:
-    """Читает информацию об отпусках из файла сотрудника"""
+    """
+    Читает информацию об отпусках из файла сотрудника
+    ОБНОВЛЕННАЯ ЛОГИКА: Статус читается ПЕРЕД периодами, периоды только для "корректно"
+    """
     try:
         # Загружаем rules из файла если не переданы
         if employee_rules is None:
@@ -266,11 +290,11 @@ def read_vacation_info(file_path: str, employee_rules: Dict = None) -> Optional[
             except Exception:
                 employee[field_name] = ""
         
-        # Читаем статус из B12
+        # ОБНОВЛЕННАЯ ЛОГИКА: Читаем статус из B12 ПЕРЕД чтением периодов
         status_value = get_cell_value(worksheet, "B12")
         status_text = str(status_value).strip() if status_value else ""
         
-        # ОБНОВЛЕННАЯ ЛОГИКА: Сохраняем оригинальные статусы, но периоды читаем только для "корректно"
+        # Определяем статус валидации
         if status_text == VALIDATION_STATUSES["filled_correct"]:
             vacation_status = "Форма заполнена корректно"
         elif status_text == VALIDATION_STATUSES["filled_incorrect"]:
@@ -286,7 +310,7 @@ def read_vacation_info(file_path: str, employee_rules: Dict = None) -> Optional[
             else:
                 vacation_status = "Форма заполнена некорректно"
         
-        # Читаем периоды отпусков только если статус "Форма заполнена корректно"
+        # КЛЮЧЕВОЕ ИЗМЕНЕНИЕ: Читаем периоды отпусков ТОЛЬКО если статус "Форма заполнена корректно"
         periods = []
         if vacation_status == "Форма заполнена корректно":
             for row in range(15, 30):
@@ -301,7 +325,7 @@ def read_vacation_info(file_path: str, employee_rules: Dict = None) -> Optional[
                     end_date = parse_date(end_date_value)
                     
                     if start_date and end_date:
-                        # Читаем продолжительность из столбца E для текущей строки
+                        # ОБНОВЛЕННАЯ ПРОВЕРКА: Читаем продолжительность из столбца E
                         days_value = get_cell_value(worksheet, f"E{row}")
                         if days_value and isinstance(days_value, (int, float)) and int(days_value) > 0:
                             days = int(days_value)
@@ -312,8 +336,8 @@ def read_vacation_info(file_path: str, employee_rules: Dict = None) -> Optional[
                 except Exception:
                     continue
         else:
-            # Если статус не "Форма заполнена корректно", периоды не читаем
-            print(f"Статус формы '{status_text}' не 'Форма заполнена корректно', периоды не читаются")
+            # ВАЖНО: Если статус НЕ "Форма заполнена корректно", периоды не читаем
+            print(f"Статус формы '{status_text}' не является 'Форма заполнена корректно', периоды не читаются")
         
         vacation_info = VacationInfo(employee=employee, periods=periods)
         vacation_info.status = vacation_status
@@ -352,9 +376,10 @@ def fill_calendar_matrix(worksheet, vacation_infos: List[VacationInfo]):
             
             col_offset += days_in_month
         
-        # Отпуска сотрудников
+        # Отпуска сотрудников - только для статуса "корректно"
         for emp_idx, vacation_info in enumerate(vacation_infos):
             emp_row = EMPLOYEE_DATA_START_ROW + emp_idx
+            # ОБНОВЛЕННАЯ ЛОГИКА: Заполняем календарь только если есть периоды (т.е. статус корректный)
             for period in vacation_info.periods:
                 current_date = period.start_date
                 while current_date <= period.end_date:
@@ -410,17 +435,21 @@ def fill_table_by_prefix(worksheet, data_list: List, rules: Dict, prefix: str, r
         apply_borders_to_table(worksheet, len(data_list), column_mapping)
 
 def get_row_data(item, index: int, prefix: str) -> Dict[str, Any]:
-    """Получает данные строки для заполнения"""
+    """
+    Получает данные строки для заполнения
+    ОБНОВЛЕННАЯ ЛОГИКА: Для некорректных статусов устанавливаем 0 дней и периодов
+    """
     if hasattr(item, 'employee'):  # VacationInfo
         employee = item.employee
         
-        # Если статус "Форма не заполнена", устанавливаем total_days и periods_count в 0
-        if item.status == "Форма не заполнена":
-            total_days = 0
-            periods_count = 0
-        else:
+        # КЛЮЧЕВОЕ ИЗМЕНЕНИЕ: Если статус НЕ "Форма заполнена корректно", устанавливаем 0
+        if item.status == "Форма заполнена корректно":
             total_days = item.total_days
             periods_count = item.periods_count
+        else:
+            # Для всех остальных статусов (некорректно, не заполнена) устанавливаем 0
+            total_days = 0
+            periods_count = 0
         
         return {
             f'{prefix}employee_name': employee.get('ФИО работника', ''),
@@ -483,15 +512,20 @@ def apply_borders_to_table(worksheet, data_count: int, column_mapping: Dict[str,
             cell.border = thin_border
 
 def normalize_vacation_data(vacation_infos: List[VacationInfo]) -> List[Dict]:
-    """Нормализует данные - каждый период = строка"""
+    """
+    Нормализует данные - каждый период = строка
+    ОБНОВЛЕННАЯ ЛОГИКА: Только периоды со статусом "корректно"
+    """
     normalized_data = []
     for vacation_info in vacation_infos:
         emp = vacation_info.employee
+        # ИЗМЕНЕНИЕ: Если нет периодов (статус некорректный), все равно добавляем пустую строку
         if not vacation_info.periods:
             normalized_data.append({
                 'employee': emp, 'period_num': 0, 'start_date': None, 'end_date': None, 'days': 0
             })
         else:
+            # Периоды есть только если статус "корректно"
             for period_idx, period in enumerate(vacation_info.periods, 1):
                 normalized_data.append({
                     'employee': emp, 'period_num': period_idx,
@@ -511,7 +545,7 @@ def create_block_report(block_name: str, vacation_infos: List[VacationInfo], out
         # Открываем файл
         workbook = openpyxl.load_workbook(output_path)
         
-        # Заполняем заголовок
+        # ОБНОВЛЕННАЯ СТАТИСТИКА: С учетом новой логики статусов
         total_employees = len(vacation_infos)
         employees_filled = sum(1 for info in vacation_infos if info.status != "Форма не заполнена")
         employees_correct = sum(1 for info in vacation_infos if info.status == "Форма заполнена корректно")
@@ -639,15 +673,24 @@ def main():
         print(f"Сотрудников: {len(vacation_infos)}")
         print(f"Целевой год: {TARGET_YEAR}")
         
-        # Статистика
+        # ОБНОВЛЕННАЯ СТАТИСТИКА: С правильным подсчетом для новой логики
         status_counts = {}
+        total_days_by_status = {}
+        
         for vi in vacation_infos:
             status = vi.status
             status_counts[status] = status_counts.get(status, 0) + 1
+            
+            # Подсчитываем дни только для корректного статуса
+            if status == "Форма заполнена корректно":
+                total_days_by_status[status] = total_days_by_status.get(status, 0) + vi.total_days
+            else:
+                total_days_by_status[status] = total_days_by_status.get(status, 0) + 0
         
-        print("Статистика:")
+        print("Статистика по статусам:")
         for status, count in status_counts.items():
-            print(f"  {status}: {count}")
+            total_days = total_days_by_status.get(status, 0)
+            print(f"  {status}: {count} сотр., {total_days} дней")
         
         print("\nОтчет создан в текущей папке.")
     else:
