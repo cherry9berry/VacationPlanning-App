@@ -602,7 +602,13 @@ def main():
     print("Шаблон найден")
     
     # 2. Сканируем файлы
-    current_dir = os.path.dirname(os.path.abspath(__file__))
+    # 2. Сканируем файлы
+    if getattr(sys, 'frozen', False):
+        # Если запущен как .exe (PyInstaller)
+        current_dir = os.path.dirname(os.path.abspath(sys.executable))
+    else:
+        # Если запущен как .py
+        current_dir = os.path.dirname(os.path.abspath(__file__))
     print(f"2. Текущая папка: {current_dir}")
     print("3. Поиск файлов сотрудников...")
     

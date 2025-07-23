@@ -87,60 +87,21 @@ class Config:
     }
     
     def __init__(self, config_file: str = "config.json"):
-        self.config_file = Path(config_file)
-        self.data = self.DEFAULT_CONFIG.copy()
+        # self.config_file = Path(config_file) # Удалено: не используем внешний файл
+        self.data = self.DEFAULT_CONFIG.copy() # Конфигурация всегда из DEFAULT_CONFIG
         self.logger = logging.getLogger(__name__)
     
     def load_or_create_default(self) -> None:
-        """Загружает конфигурацию из файла или создает файл по умолчанию"""
-        try:
-            # Проверяем, что мы в правильной директории
-            current_dir = Path.cwd()
-            self.logger.info(f"Текущая рабочая директория: {current_dir}")
-            self.logger.info(f"Путь к файлу конфигурации: {self.config_file.absolute()}")
-            
-            if self.config_file.exists():
-                self.load()
-                self.logger.info(f"Конфигурация загружена из {self.config_file}")
-            else:
-                # Пытаемся создать директорию если её нет
-                self.config_file.parent.mkdir(parents=True, exist_ok=True)
-                self.save()
-                self.logger.info(f"Создан файл конфигурации по умолчанию: {self.config_file}")
-        except Exception as e:
-            self.logger.error(f"Ошибка работы с конфигурацией: {e}")
-            self.logger.error(f"Используем конфигурацию по умолчанию")
-            self.data = self.DEFAULT_CONFIG.copy()
+        """Всегда использует конфигурацию по умолчанию, не работает с файлами"""
+        self.data = self.DEFAULT_CONFIG.copy()
+        self.logger.info("Конфигурация всегда используется по умолчанию (зашита в EXE).")
+        # Удалена логика загрузки/создания из файла
     
     def load(self) -> None:
-        """Загружает конфигурацию из файла"""
-        try:
-            with open(self.config_file, 'r', encoding='utf-8') as f:
-                loaded_data = json.load(f)
-                
-            # Обновляем только существующие ключи, остальные берем из DEFAULT_CONFIG
-            for key, value in loaded_data.items():
-                if key in self.DEFAULT_CONFIG:
-                    self.data[key] = value
-                    
-        except FileNotFoundError:
-            self.logger.warning(f"Файл конфигурации не найден: {self.config_file}")
-            raise
-        except json.JSONDecodeError as e:
-            self.logger.error(f"Ошибка парсинга JSON: {e}")
-            raise
-        except Exception as e:
-            self.logger.error(f"Ошибка загрузки конфигурации: {e}")
-            raise
+        raise NotImplementedError("Загрузка конфигурации из файла отключена.")
     
     def save(self) -> None:
-        """Сохраняет конфигурацию в файл"""
-        try:
-            with open(self.config_file, 'w', encoding='utf-8') as f:
-                json.dump(self.data, f, ensure_ascii=False, indent=2)
-        except Exception as e:
-            self.logger.error(f"Ошибка сохранения конфигурации: {e}")
-            raise
+        raise NotImplementedError("Сохранение конфигурации в файл отключено.")
     
     def get(self, key: str, default=None):
         """Получает значение из конфигурации"""

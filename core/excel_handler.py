@@ -938,9 +938,9 @@ class ExcelHandler:
     def _apply_borders_to_general_table(self, worksheet, data_count: int, data_start_row: int):
         """Применяет границы к таблице данных общего отчета"""
         thin_border = Border(
-            left=Side(style='thin'), 
-            right=Side(style='thin'), 
-            top=Side(style='thin'), 
+            left=Side(style='thin'),
+            right=Side(style='thin'),
+            top=Side(style='thin'),
             bottom=Side(style='thin')
         )
         
