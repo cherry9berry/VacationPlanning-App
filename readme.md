@@ -1,5 +1,5 @@
 # Vacation Tool - Business Process Digitalization Prototype
----
+
 **Vacation Tool** is a pilot project designed to demonstrate the potential for **digitalizing the vacation planning process** in organizations with a headcount of up to several thousand employees. Developed as a functional desktop prototype in Python with a Tkinter graphical interface, it automates a comprehensive set of processes related to the mass generation and management of vacation files, as well as the creation of various analytical reports. This prototype visually demonstrates the process at an applied level for each user. Its primary goal is to serve as the **foundation for future development of a full-fledged web service**. Upon completion and approval, this prototype will be scaled into a web application, offering greater flexibility, accessibility, and integration into the corporate environment.
 
 
