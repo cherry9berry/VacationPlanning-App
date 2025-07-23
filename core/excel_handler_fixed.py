@@ -347,7 +347,7 @@ class ExcelHandler:
         
         return rules
 
-     def create_block_report(self, block_name: str, vacation_infos: List[VacationInfo], output_path: str) -> bool:
+    def create_block_report(self, block_name: str, vacation_infos: List[VacationInfo], output_path: str) -> bool:
         """Создает отчет по блоку с использованием rules"""
         template_path = Path(self.config.block_report_template)
         if not template_path.exists():

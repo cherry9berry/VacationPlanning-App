@@ -383,7 +383,11 @@ class ExcelHandler:
             self._apply_borders_to_report_table(workbook['Report'], len(vacation_infos), rules)
         
         if 'Print' in workbook.sheetnames:
-            normalized_data = self._normalize_vacation_data(vacation_infos)
+            # Сортируем vacation_infos: сначала FILLED_CORRECT, затем остальные
+            # Используем кастомную функцию сортировки, которая дает FILLED_CORRECT наивысший приоритет
+            sorted_vacation_infos = sorted(vacation_infos, key=lambda x: x.status != VacationStatus.FILLED_CORRECT)
+            
+            normalized_data = self._normalize_vacation_data(sorted_vacation_infos)
             self._fill_table_by_prefix(workbook['Print'], normalized_data, rules, 'print_', self._get_print_row_data_dynamic)
             self._apply_borders_to_table(workbook['Print'], len(normalized_data))
 
@@ -880,7 +884,6 @@ class ExcelHandler:
             cell = worksheet.cell(row=summary_row_new, column=col)
             formula = summary_formulas[col-1]
             cell.value = formula
-        self._apply_borders_to_general_table(worksheet, len(block_data), data_start_row)
 
     def _copy_cell_style(self, cell):
         """Копирует стиль, формат, границы, заливку, выравнивание, font"""

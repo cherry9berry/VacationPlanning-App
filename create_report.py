@@ -566,7 +566,10 @@ def create_block_report(block_name: str, vacation_infos: List[VacationInfo], out
             fill_calendar_matrix(workbook['Report'], vacation_infos)
         
         if 'Print' in workbook.sheetnames:
-            normalized_data = normalize_vacation_data(vacation_infos)
+            # Сортируем vacation_infos: сначала 'Форма заполнена корректно', затем остальные
+            sorted_vacation_infos = sorted(vacation_infos, key=lambda x: x.status != "Форма заполнена корректно")
+
+            normalized_data = normalize_vacation_data(sorted_vacation_infos)
             fill_table_by_prefix(workbook['Print'], normalized_data, rules, 'print_', get_row_data)
         
         workbook.save(output_path)
@@ -594,21 +597,19 @@ def main():
     print("1. Проверка шаблона...")
     if not Path(TEMPLATE_PATH).exists():
         print(f"ОШИБКА: Шаблон не найден: {TEMPLATE_PATH}")
-        import time
-        time.sleep(3)
+        input("Нажмите Enter для выхода...")  # Заменено time.sleep(3)
         return
     print("Шаблон найден")
     
     # 2. Сканируем файлы
-    current_dir = os.getcwd()
+    current_dir = os.path.dirname(os.path.abspath(__file__))
     print(f"2. Текущая папка: {current_dir}")
     print("3. Поиск файлов сотрудников...")
     
     employee_files = scan_employee_files(current_dir)
     if not employee_files:
         print("ОШИБКА: Не найдено файлов сотрудников по маске 'Имя (цифры).xlsx'")
-        import time
-        time.sleep(3)
+        input("Нажмите Enter для выхода...")  # Заменено time.sleep(3)
         return
     
     # 3. Читаем данные
@@ -630,8 +631,7 @@ def main():
     
     if not vacation_infos:
         print("ОШИБКА: Не удалось прочитать файлы сотрудников")
-        import time
-        time.sleep(3)
+        input("Нажмите Enter для выхода...")  # Заменено time.sleep(3)
         return
     
     print(f"Успешно обработано: {len(vacation_infos)} файлов")
@@ -697,8 +697,7 @@ def main():
         print("ОШИБКА: Не удалось создать отчет")
     
     print()
-    import time
-    time.sleep(2)  # Пауза 2 сек чтобы увидеть результат
+    input("Нажмите Enter для выхода...")  # Заменено time.sleep(2)
 
 if __name__ == "__main__":
     main()
