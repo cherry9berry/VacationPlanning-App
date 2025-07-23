@@ -880,10 +880,37 @@ class ExcelHandler:
         for col in range(1, total_cols+1):
             cell = worksheet.cell(row=summary_row_new, column=col)
             self._apply_cell_style(cell, summary_styles[col-1])
+        
+        # Корректируем формулы для нового количества строк данных
+        updated_summary_formulas = []
+        # Новая последняя строка данных перед строкой итогов
+        new_data_end_row = data_start_row + len(block_data) - 1 
+        
+        for formula_str in summary_formulas:
+            if isinstance(formula_str, str) and formula_str.startswith('='):
+                # Ищем формулы SUM или AVERAGE с диапазоном, например SUM(D6:DXX) или AVERAGE(D6:DXX)
+                match = re.match(r'=(SUM|AVERAGE)\(([A-Z]+)(\d+):([A-Z]+)(\d+)\)', formula_str, re.IGNORECASE)
+                if match:
+                    function_name_part = match.group(1) # Например, "SUM" или "AVERAGE"
+                    prefix_col = match.group(2)         # Например, "D" (начальная колонка)
+                    start_row_ref = int(match.group(3)) # Например, "6" (начальная строка)
+                    end_col_ref = match.group(4)        # Например, "D" (конечная колонка)
+                    
+                    # Формируем новую формулу с обновленным конечным рядом
+                    updated_formula = f"={function_name_part}({prefix_col}{start_row_ref}:{end_col_ref}{new_data_end_row})"
+                    updated_summary_formulas.append(updated_formula)
+                else:
+                    # Для других формул, которые не являются SUM с диапазоном, оставляем как есть
+                    updated_summary_formulas.append(formula_str)
+            else:
+                updated_summary_formulas.append(formula_str) # Не строка или не формула
+
+        # Применяем скорректированные формулы к новой строке итогов 
         for col in range(1, total_cols+1):
             cell = worksheet.cell(row=summary_row_new, column=col)
-            formula = summary_formulas[col-1]
-            cell.value = formula
+            # Используем обновленную формулу, если доступна, иначе исходную
+            formula_to_apply = updated_summary_formulas[col - 1] if col - 1 < len(updated_summary_formulas) else summary_formulas[col-1]
+            cell.value = formula_to_apply
 
     def _copy_cell_style(self, cell):
         """Копирует стиль, формат, границы, заливку, выравнивание, font"""

@@ -41,7 +41,7 @@ class ExcelHandler:
         return self._cached_rules[template_path]
     
     def _get_cached_template_workbook(self, template_path: str) -> openpyxl.Workbook:
-        """Получает шаблон из кэша или загружает его"""
+        """Получает шаблон из кэша или загружает его""" 
         if template_path not in self._cached_workbooks:
             self._cached_workbooks[template_path] = openpyxl.load_workbook(
                 template_path,
@@ -134,7 +134,7 @@ class ExcelHandler:
         is_formula = address.startswith('=')
         
         if is_formula:
-            # Убираем знак равенства и извлекаем адрес
+            # Убираем знак равенства и извлекаем адрес 
             formula = address[1:]
             
             # Простой парсинг для формул вида 'Лист'!A1
@@ -160,7 +160,7 @@ class ExcelHandler:
             return ''
         
         if isinstance(value, (int, float)):
-            # Сохраняем целые числа как int, float как float
+            # Сохраняем целые числа как int, float как float 
             return value
         
         str_value = str(value).strip()

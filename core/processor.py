@@ -405,9 +405,10 @@ class VacationProcessor:
             for file_path in dept_path_obj.iterdir():
                 if file_path.is_file() and file_path.suffix.lower() == '.xlsx':
                     filename = file_path.name
-                    if (filename.startswith("Отчет по блоку") or 
+                    if (not filename.startswith('~$') and # Игнорируем временные файлы Excel
+                        (filename.startswith("Отчет по блоку") or 
                         filename.startswith("отчет по блоку") or
-                        "отчет" in filename.lower()):
+                        "отчет" in filename.lower())):
                         report_files.append(file_path)
             
             if not report_files:
