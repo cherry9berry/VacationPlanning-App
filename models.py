@@ -26,28 +26,6 @@ class ProcessingStatus(Enum):
     CANCELLED = "cancelled"
 
 
-@dataclass
-class Employee:
-    """Модель сотрудника"""
-    full_name: str = ""
-    tab_number: str = ""
-    position: str = ""
-    department1: str = ""
-    department2: str = ""
-    department3: str = ""
-    department4: str = ""
-    
-    # Дополнительные поля
-    location: str = ""
-    vacation_remainder: str = ""
-    hire_date: str = ""
-    period_cutoff_date: str = ""
-    additional_vacation_nrd: str = ""
-    additional_vacation_north: str = ""
-    
-    # Служебные поля
-    file_path: Optional[str] = None  # Путь к файлу сотрудника для чтения статуса
-
 
 @dataclass
 class VacationPeriod:
@@ -117,24 +95,6 @@ class ValidationResult:
             return f"✗ Найдено ошибок: {len(self.errors)}"
 
 
-@dataclass
-class ProcessingResult:
-    """Результат обработки файлов"""
-    success: bool = True
-    created_files: int = 0
-    skipped_files: int = 0
-    errors: List[str] = field(default_factory=list)
-    warnings: List[str] = field(default_factory=list)
-    processing_time: float = 0.0
-    
-    def add_error(self, message: str) -> None:
-        """Добавляет ошибку"""
-        self.errors.append(message)
-        self.success = False
-    
-    def add_warning(self, message: str) -> None:
-        """Добавляет предупреждение"""
-        self.warnings.append(message)
 
 
 @dataclass
@@ -196,39 +156,3 @@ class OperationLog:
         return None
 
 
-@dataclass
-class BlockReport:
-    """Отчет по блоку/подразделению"""
-    block_name: str
-    total_employees: int = 0
-    completed_employees: int = 0
-    remaining_employees: int = 0
-    percentage: float = 0.0
-    update_date: str = ""
-    file_path: str = ""
-    
-    @property
-    def completion_rate(self) -> float:
-        """Процент завершения"""
-        if self.total_employees == 0:
-            return 0.0
-        return (self.completed_employees / self.total_employees) * 100
-
-
-@dataclass
-class GeneralReport:
-    """Общий отчет по всем блокам"""
-    blocks: List[BlockReport] = field(default_factory=list)
-    total_employees: int = 0
-    total_completed: int = 0
-    total_remaining: int = 0
-    overall_percentage: float = 0.0
-    creation_date: str = ""
-    file_path: str = ""
-    
-    def calculate_totals(self) -> None:
-        """Пересчитывает общие показатели"""
-        self.total_employees = sum(block.total_employees for block in self.blocks)
-        self.total_completed = sum(block.completed_employees for block in self.blocks)
-        self.total_remaining = self.total_employees - self.total_completed
-        self.overall_percentage = (self.total_completed / self.total_employees * 100) if self.total_employees > 0 else 0.0

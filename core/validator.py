@@ -12,7 +12,7 @@ import re
 import openpyxl
 from openpyxl import Workbook
 
-from models import Employee, ValidationResult
+from models import ValidationResult
 from config import Config
 
 

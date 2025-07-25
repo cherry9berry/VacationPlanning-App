@@ -13,7 +13,7 @@ import re
 import openpyxl
 from openpyxl.styles import Border, Side
 
-from models import Employee, VacationInfo, VacationPeriod, VacationStatus
+from models import VacationInfo, VacationPeriod, VacationStatus
 from config import Config
 from core.performance_tracker import PerformanceTracker, FilePerformanceStats
 from core.directory_manager import DirectoryManager

@@ -13,14 +13,11 @@ from datetime import datetime
 from typing import List, Dict, Callable, Optional, Tuple
 
 from models import (
-    Employee, VacationInfo, BlockReport, GeneralReport, 
-    ProcessingProgress, OperationLog, ProcessingStatus, ValidationResult, VacationStatus
+    VacationInfo, ProcessingProgress, OperationLog, ProcessingStatus, ValidationResult, VacationStatus
 )
 from config import Config
 from core.validator import Validator
 from core.excel_handler import ExcelHandler
-from core.file_manager import FileManager
-from core.performance_tracker import PerformanceTracker
 from core.employee_file_creator import EmployeeFileCreator
 from core.directory_manager import DirectoryManager
 
@@ -35,8 +32,6 @@ class VacationProcessor:
         self.logger = logging.getLogger(__name__)
         self.validator = Validator(config)
         self.excel_handler = ExcelHandler(config)
-        self.file_manager = FileManager(config)
-        self.performance_tracker = PerformanceTracker()
         self.employee_file_creator = EmployeeFileCreator(config)
         self.directory_manager = DirectoryManager(config)
 
